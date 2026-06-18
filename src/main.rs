@@ -29,9 +29,32 @@ const EXIT_USAGE: u8 = 2;
 const EXIT_GUARD: u8 = 3; // a guarded edit's --expect / apply expectation failed
 
 fn main() -> ExitCode {
+    reset_sigpipe();
     let args: Vec<String> = std::env::args().skip(1).collect();
     ExitCode::from(run(&args))
 }
+
+/// Restore the default SIGPIPE disposition. Rust sets SIGPIPE to *ignore* at
+/// startup, which turns a closed-pipe write (`tarn find . x | head`) into a
+/// panic instead of a quiet exit. Putting it back to the OS default makes tarn
+/// behave like `grep`/`cat` when a reader closes early. Uses the always-linked
+/// system libc directly — no crate dependency, in keeping with the std-only rule.
+#[cfg(unix)]
+fn reset_sigpipe() {
+    const SIGPIPE: i32 = 13;
+    const SIG_DFL: usize = 0;
+    extern "C" {
+        fn signal(signum: i32, handler: usize) -> usize;
+    }
+    // Safety: SIG_DFL is always a valid handler value; this just restores the
+    // default disposition for one signal and touches no Rust state.
+    unsafe {
+        signal(SIGPIPE, SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn reset_sigpipe() {}
 
 fn run(args: &[String]) -> u8 {
     let first = match args.first() {
