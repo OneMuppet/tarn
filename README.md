@@ -159,6 +159,35 @@ tarn replace app.py 27 'PORT = 9090' --json
 # {"ok":true,"path":"app.py","op":"replace","before":120,"after":120,"dry_run":false}
 ```
 
+### Edit safely: guards and atomic batches
+
+`--expect <text>` turns a blind edit into a checked one: the edit only happens if
+the target currently matches, otherwise tarn refuses and exits **3** without
+touching the file. No more clobbering the wrong line after numbers drift — and no
+defensive re-read first.
+
+```sh
+tarn replace app.py 27 'PORT=9090' --expect 'PORT=8000'   # applies only if line 27 == PORT=8000
+```
+
+`tarn apply` runs a **batch of edits atomically** from stdin. Every op is resolved
+against the *original* line numbers (so order doesn't matter and numbers never
+drift between ops), conflicts are rejected, and any failed `expect` aborts the
+*whole* batch — all-or-nothing.
+
+```sh
+tarn apply app.py --diff <<'OPS'
+expect 1 import os          # precondition for the whole batch
+insert 0 #!/usr/bin/env python3
+replace 4 DEBUG = False
+delete  5-5
+OPS
+```
+
+Ops: `expect <N> <text>`, `replace <N> <text>`, `insert <after-N> <text>`,
+`delete <A-B>`. Blank lines and `#` comments are ignored. Combine with
+`--dry-run`/`--json` like any edit.
+
 ## The scriptable side (for AI harnesses & scripts)
 
 These are non-interactive and deterministic. Edits are **surgical**: comments,
@@ -182,6 +211,7 @@ tarn view  .env --numbers         # ...with line numbers
 | `0` | success |
 | `1` | key / file not found |
 | `2` | usage error |
+| `3` | guard (`--expect`) failed |
 
 ### key=value semantics
 

@@ -25,6 +25,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 const EXIT_OK: u8 = 0;
 const EXIT_NOT_FOUND: u8 = 1;
 const EXIT_USAGE: u8 = 2;
+const EXIT_GUARD: u8 = 3; // a guarded edit's --expect / apply expectation failed
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -61,6 +62,7 @@ fn run(args: &[String]) -> u8 {
         "insert" => cmd_insert(&args[1..]),
         "delete" | "del" => cmd_delete(&args[1..]),
         "write" => cmd_write(&args[1..]),
+        "apply" => cmd_apply(&args[1..]),
         // Anything else is treated as a filename to open.
         _ => open_file(first),
     }
@@ -410,7 +412,14 @@ fn cmd_replace(args: &[String]) -> u8 {
         },
         _ => return usage_err("replace <file> <N> <text> [--diff|--json] [--dry-run]"),
     };
-    apply_edit(file, "replace", &flags, |c| textfile::replace(c, n, text))
+    let exp = flags.expect.clone();
+    apply_edit(
+        file,
+        "replace",
+        &flags,
+        |c| check_expect(&exp, textfile::line_at(c, n)),
+        |c| textfile::replace(c, n, text),
+    )
 }
 
 /// `insert <file> <after-N> <text> [...]`  (after-N = 0 inserts at the top)
@@ -423,7 +432,14 @@ fn cmd_insert(args: &[String]) -> u8 {
         },
         _ => return usage_err("insert <file> <after-N> <text> [--diff|--json] [--dry-run]"),
     };
-    apply_edit(file, "insert", &flags, |c| textfile::insert(c, after, text))
+    let exp = flags.expect.clone();
+    apply_edit(
+        file,
+        "insert",
+        &flags,
+        |c| check_expect(&exp, textfile::line_at(c, after)),
+        |c| textfile::insert(c, after, text),
+    )
 }
 
 /// `delete <file> <A-B> [...]`  (alias: del)
@@ -436,7 +452,14 @@ fn cmd_delete(args: &[String]) -> u8 {
         },
         _ => return usage_err("delete <file> <A-B> [--diff|--json] [--dry-run]"),
     };
-    apply_edit(file, "delete", &flags, |c| textfile::delete(c, range.0, range.1))
+    let exp = flags.expect.clone();
+    apply_edit(
+        file,
+        "delete",
+        &flags,
+        |c| check_expect(&exp, textfile::range_text(c, range.0, range.1)),
+        |c| textfile::delete(c, range.0, range.1),
+    )
 }
 
 /// `write <file> [...]` — replace the whole file with stdin.
@@ -452,7 +475,81 @@ fn cmd_write(args: &[String]) -> u8 {
         return EXIT_USAGE;
     }
     let new = textfile::normalize(&input);
-    apply_edit(file, "write", &flags, move |_| Ok(new.clone()))
+    apply_edit(file, "write", &flags, |_| Ok(()), move |_| Ok(new.clone()))
+}
+
+/// `apply <file> [...]` — apply a batch of ops from stdin, atomically.
+/// Ops (one per line; `#` and blanks ignored), all against ORIGINAL line numbers:
+///     expect  <N> <text>      replace <N> <text>
+///     insert  <after-N> <text>    delete  <A-B>
+fn cmd_apply(args: &[String]) -> u8 {
+    let flags = parse_edit_flags(args);
+    let file = match flags.rest.first() {
+        Some(f) => f.as_str(),
+        None => return usage_err("apply <file> [--diff|--json] [--dry-run]   (ops on stdin)"),
+    };
+    let mut input = String::new();
+    if io::stdin().read_to_string(&mut input).is_err() {
+        eprintln!("tarn: failed to read stdin");
+        return EXIT_USAGE;
+    }
+    let mut ops = Vec::new();
+    for (i, raw) in input.lines().enumerate() {
+        match parse_op(raw) {
+            Ok(Some(op)) => ops.push(op),
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("tarn: ops line {}: {e}", i + 1);
+                return EXIT_USAGE;
+            }
+        }
+    }
+    let old = match fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
+    let new = match textfile::apply_ops(&old, &ops) {
+        Ok(n) => n,
+        Err(e) => {
+            let code = if e.starts_with("expect failed") { EXIT_GUARD } else { EXIT_USAGE };
+            eprintln!("tarn: {e}");
+            return code;
+        }
+    };
+    commit(file, "apply", &flags, &old, &new)
+}
+
+/// Parse one line of the `apply` op protocol.
+fn parse_op(raw: &str) -> Result<Option<textfile::Op>, String> {
+    let line = raw.trim_end();
+    let t = line.trim();
+    if t.is_empty() || t.starts_with('#') {
+        return Ok(None);
+    }
+    let (op, rest) = line.trim_start().split_once(' ').unwrap_or((t, ""));
+    match op {
+        "replace" => split_num_text(rest).map(|(n, s)| Some(textfile::Op::Replace(n, s))),
+        "insert" => split_num_text(rest).map(|(n, s)| Some(textfile::Op::Insert(n, s))),
+        "expect" => split_num_text(rest).map(|(n, s)| Some(textfile::Op::Expect(n, s))),
+        "delete" => match parse_range(rest.trim()) {
+            Some((a, b)) => Ok(Some(textfile::Op::Delete(a, b))),
+            None => Err("delete needs A-B".to_string()),
+        },
+        other => Err(format!("unknown op '{other}'")),
+    }
+}
+
+/// Split "<num> <text...>" (text may be empty).
+fn split_num_text(rest: &str) -> Result<(usize, String), String> {
+    let rest = rest.trim_start();
+    let (num, text) = rest.split_once(' ').unwrap_or((rest, ""));
+    let num: usize = num
+        .parse()
+        .map_err(|_| format!("expected a line number, got '{num}'"))?;
+    Ok((num, text.to_string()))
 }
 
 /// Flags shared by every editing command.
@@ -461,13 +558,25 @@ struct EditFlags {
     json: bool,
     dry_run: bool,
     color: bool,
+    expect: Option<String>,
     rest: Vec<String>,
 }
 
-/// Compute an edit, optionally write it (unless `--dry-run`), and report the
-/// result as a diff (default / `--diff`) or as JSON (`--json`).
-fn apply_edit<F>(file: &str, op: &str, flags: &EditFlags, edit: F) -> u8
+/// Verify a `--expect` precondition against the target's current text.
+fn check_expect(expect: &Option<String>, actual: Option<String>) -> Result<(), String> {
+    match expect {
+        Some(e) if actual.as_deref() == Some(e.as_str()) => Ok(()),
+        Some(_) => {
+            Err("expect failed: target does not match (run `tarn show` to inspect)".to_string())
+        }
+        None => Ok(()),
+    }
+}
+
+/// Run a guard, compute an edit, write it (unless `--dry-run`), and report.
+fn apply_edit<G, F>(file: &str, op: &str, flags: &EditFlags, guard: G, edit: F) -> u8
 where
+    G: FnOnce(&str) -> Result<(), String>,
     F: FnOnce(&str) -> Result<String, String>,
 {
     // `write` may create the file; the line ops require it to exist.
@@ -482,6 +591,10 @@ where
             }
         }
     };
+    if let Err(e) = guard(&old) {
+        eprintln!("tarn: {e}");
+        return EXIT_GUARD;
+    }
     let new = match edit(&old) {
         Ok(n) => n,
         Err(e) => {
@@ -489,14 +602,17 @@ where
             return EXIT_USAGE;
         }
     };
+    commit(file, op, flags, &old, &new)
+}
 
+/// Write the new content (unless dry-run) and emit the chosen report.
+fn commit(file: &str, op: &str, flags: &EditFlags, old: &str, new: &str) -> u8 {
     if !flags.dry_run {
-        if let Err(e) = fs::write(file, &new) {
+        if let Err(e) = fs::write(file, new) {
             eprintln!("tarn: cannot write {file}: {e}");
             return EXIT_USAGE;
         }
     }
-
     if flags.json {
         print!(
             "{}",
@@ -504,7 +620,7 @@ where
         );
     } else if flags.diff || flags.dry_run {
         // A dry-run with no explicit output still previews via diff.
-        print!("{}", render::diff(&old, &new, flags.color));
+        print!("{}", render::diff(old, new, flags.color));
     }
     let _ = io::stdout().flush();
     EXIT_OK
@@ -528,29 +644,32 @@ fn base_name(path: &str) -> String {
 /// Pull the shared editing flags out of an edit command's args. Color
 /// precedence: `--plain` < `--color` < auto-detect (TTY + NO_COLOR).
 fn parse_edit_flags(args: &[String]) -> EditFlags {
-    let has = |name: &str| args.iter().any(|a| a == name);
-    let color = if has("--plain") {
-        false
-    } else if has("--color") {
-        true
-    } else {
-        use_color()
-    };
-    let rest: Vec<String> = args
-        .iter()
-        .filter(|a| {
-            !matches!(
-                a.as_str(),
-                "--diff" | "--json" | "--dry-run" | "--color" | "--plain"
-            )
-        })
-        .cloned()
-        .collect();
+    let (mut diff, mut json, mut dry_run) = (false, false, false);
+    let mut color_pref: Option<bool> = None;
+    let mut expect: Option<String> = None;
+    let mut rest: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--diff" => diff = true,
+            "--json" => json = true,
+            "--dry-run" => dry_run = true,
+            "--color" => color_pref = Some(true),
+            "--plain" => color_pref = Some(false),
+            "--expect" => {
+                i += 1;
+                expect = args.get(i).cloned();
+            }
+            other => rest.push(other.to_string()),
+        }
+        i += 1;
+    }
     EditFlags {
-        diff: has("--diff"),
-        json: has("--json"),
-        dry_run: has("--dry-run"),
-        color,
+        diff,
+        json,
+        dry_run,
+        color: color_pref.unwrap_or_else(use_color),
+        expect,
         rest,
     }
 }
@@ -616,7 +735,9 @@ USAGE:
     tarn insert  <file> <after-N> <text>  insert after line N (0=top)
     tarn delete  <file> <A-B>             delete line range  (alias: del)
     tarn write   <file>                   replace file from stdin
+    tarn apply   <file>                   batch ops from stdin, atomically
         edit flags:  --diff (preview) | --json | --dry-run (don't write)
+        --expect <text>  guard: fail (exit 3) unless the target matches
 
   .env / key=value:
     tarn get   <file> <KEY>     print KEY's value (exit 1 if missing)
@@ -634,6 +755,6 @@ EDITOR KEYS:
     ^S     save           ^Q                  quit (twice if unsaved)
 
 EXIT CODES:
-    0 success    1 not found    2 usage error"
+    0 success    1 not found    2 usage error    3 guard (--expect) failed"
     );
 }
