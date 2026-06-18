@@ -69,6 +69,32 @@ The editor only starts when stdout is a real terminal. If you pipe into it or ru
 it under a harness, `tarn` won't try to be a TUI — it prints the file and points
 you at the subcommands below.
 
+## Navigate a file without reading it
+
+For an agent, reading a whole file just to find one thing burns context. These
+two give you structure cheaply — see the shape, then jump to the part you need.
+
+```sh
+tarn outline app.py            # a map of defs / classes / headings + line ranges
+tarn find   app.py 'send_'     # literal search; each hit with its line number
+tarn find   app.py 'send_' --enclosing   # ...and the definition that contains it
+tarn find   app.py 'send_' --json -i --limit 50
+```
+
+```
+$ tarn outline server.py
+  3 │ class Handler        (3–9)
+  4 │   def do_GET         (4–6)
+ 11 │ def main             (11–14)
+```
+
+Structure is **heuristic, not semantic** — tarn has no language parser (zero
+deps). It uses extension-aware keyword patterns (`def`/`class`/`fn`/`func`/
+`function`/`struct`/… and Markdown `#` headings) plus indentation for extent.
+That nails the common case; a function with a multi-line signature may report a
+slightly short end range. `find` is literal substring (`-i` for case-insensitive),
+not regex. Both take `--json` so results chain straight into `show`/edits.
+
 ## Opening & editing documents (for AI harnesses)
 
 The interactive editor needs a real terminal, which an agent like Claude Code
@@ -205,6 +231,7 @@ src/editor.rs     the full-screen editor
 src/envfile.rs    surgical get/set/unset/keys
 src/textfile.rs   line-addressable replace/insert/delete
 src/render.rs     the `show` snapshot view + `--diff` renderer
+src/structure.rs  heuristic outline / enclosing-scope detection
 ```
 
 ## License

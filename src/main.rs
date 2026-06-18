@@ -8,6 +8,7 @@
 mod editor;
 mod envfile;
 mod render;
+mod structure;
 mod terminal;
 mod textfile;
 
@@ -54,6 +55,8 @@ fn run(args: &[String]) -> u8 {
         "keys" | "list" => cmd_keys(&args[1..]),
         "view" | "cat" => cmd_view(&args[1..]),
         "show" => cmd_show(&args[1..]),
+        "outline" => cmd_outline(&args[1..]),
+        "find" => cmd_find(&args[1..]),
         "replace" => cmd_replace(&args[1..]),
         "insert" => cmd_insert(&args[1..]),
         "delete" | "del" => cmd_delete(&args[1..]),
@@ -294,6 +297,109 @@ fn cmd_show(args: &[String]) -> u8 {
     EXIT_OK
 }
 
+/// `outline <file> [--json]` — a structural map of the file (defs, headings).
+fn cmd_outline(args: &[String]) -> u8 {
+    let json = args.iter().any(|a| a == "--json");
+    let file = match args.iter().find(|a| !a.starts_with("--")) {
+        Some(f) => f.as_str(),
+        None => return usage_err("outline <file> [--json]"),
+    };
+    let content = match fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
+    let defs = structure::outline(file, &content);
+    let name = base_name(file);
+    if json {
+        print!("{}", render::outline_json(&name, &defs));
+    } else {
+        print!("{}", render::outline_view(&name, &defs, use_color()));
+    }
+    let _ = io::stdout().flush();
+    EXIT_OK
+}
+
+/// `find <file> <pattern> [-i] [--enclosing] [--json] [--limit N]`
+/// Literal substring search; with --enclosing each hit is tagged with the
+/// definition that contains it. Exit 1 if there are no matches.
+fn cmd_find(args: &[String]) -> u8 {
+    let mut file: Option<&str> = None;
+    let mut pattern: Option<&str> = None;
+    let mut ignore_case = false;
+    let mut enclosing = false;
+    let mut json = false;
+    let mut limit = 100usize;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-i" | "--ignore-case" => ignore_case = true,
+            "--enclosing" => enclosing = true,
+            "--json" => json = true,
+            "--limit" => match next_usize(args, &mut i) {
+                Some(n) => limit = n,
+                None => return usage_err("find <file> <pattern> --limit N"),
+            },
+            s if s.starts_with("--") || (s.starts_with('-') && s.len() == 2 && file.is_some()) => {
+                eprintln!("tarn: unknown flag {s}");
+                return EXIT_USAGE;
+            }
+            s if file.is_none() => file = Some(s),
+            s => pattern = Some(s),
+        }
+        i += 1;
+    }
+
+    let (file, pattern) = match (file, pattern) {
+        (Some(f), Some(p)) => (f, p),
+        _ => return usage_err("find <file> <pattern> [-i] [--enclosing] [--json]"),
+    };
+    let content = match fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
+
+    let needle = if ignore_case { pattern.to_lowercase() } else { pattern.to_string() };
+    let mut matches: Vec<render::FindMatch> = Vec::new();
+    let mut total = 0usize;
+    for (idx, line) in content.lines().enumerate() {
+        let hay = if ignore_case { line.to_lowercase() } else { line.to_string() };
+        if hay.contains(&needle) {
+            total += 1;
+            if matches.len() < limit {
+                let scope = if enclosing {
+                    structure::qualified(file, &content, idx + 1)
+                } else {
+                    None
+                };
+                matches.push(render::FindMatch { line: idx + 1, text: line.to_string(), scope });
+            }
+        }
+    }
+
+    if total == 0 {
+        return EXIT_NOT_FOUND;
+    }
+
+    let name = base_name(file);
+    if json {
+        print!("{}", render::find_json(&name, pattern, &matches));
+    } else {
+        print!("{}", render::find_view(&name, pattern, &matches, use_color()));
+        if total > matches.len() {
+            println!("… {} more match(es) (raise --limit)", total - matches.len());
+        }
+    }
+    let _ = io::stdout().flush();
+    EXIT_OK
+}
+
 /// `replace <file> <N> <text> [--diff|--json] [--dry-run]`
 fn cmd_replace(args: &[String]) -> u8 {
     let flags = parse_edit_flags(args);
@@ -496,6 +602,11 @@ fn print_usage() {
 
 USAGE:
     tarn <file>                 open the interactive editor
+
+  navigate (structure without reading the whole file):
+    tarn outline <file>         map of defs/classes/headings  [--json]
+    tarn find    <file> <text>  search; each hit + line number [--json]
+        -i (ignore case) | --enclosing (tag hits with their def) | --limit N
 
   documents (non-interactive — for scripts & AI harnesses):
     tarn show    <file>         editor-style snapshot to stdout

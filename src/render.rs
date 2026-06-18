@@ -6,6 +6,8 @@
 //! and off by default when stdout is not a terminal, so harness-captured output
 //! stays clean (box-drawing only, no escape soup).
 
+use crate::structure::Def;
+
 // --- brand palette (truecolor) ----------------------------------------------
 const COPPER: &str = "\x1b[38;2;199;117;46m";
 const MINT: &str = "\x1b[38;2;127;209;176m"; // additions
@@ -320,6 +322,99 @@ pub fn edit_json(path: &str, op: &str, before: usize, after: usize, dry_run: boo
         before,
         after,
         dry_run
+    )
+}
+
+// --- outline ------------------------------------------------------------------
+/// Human-readable structural map.
+pub fn outline_view(path: &str, defs: &[Def], color: bool) -> String {
+    let mut out = String::new();
+    let head = format!("┌─ outline: {path} ─ {} defs ", defs.len());
+    out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(40))));
+    out.push('\n');
+    if defs.is_empty() {
+        out.push_str(&paint(color, DIM, "│  (no definitions found)"));
+        out.push('\n');
+    }
+    let gw = defs.iter().map(|d| d.line).max().unwrap_or(1).to_string().len().max(2);
+    for d in defs {
+        let num = paint(color, DIM, &format!("{:>w$}", d.line, w = gw));
+        let sep = paint(color, DIM, "│");
+        let indent = "  ".repeat(d.depth);
+        let tag = paint(color, DIM, &format!("{} ", d.kind));
+        let range = paint(color, DIM, &format!("({}–{})", d.line, d.end));
+        out.push_str(&format!("{num} {sep} {indent}{tag}{} {range}\n", d.name));
+    }
+    out.push_str(&paint(color, COPPER, &format!("└{}", "─".repeat(48))));
+    out.push('\n');
+    out
+}
+
+/// Machine-readable outline.
+pub fn outline_json(path: &str, defs: &[Def]) -> String {
+    let items: Vec<String> = defs
+        .iter()
+        .map(|d| {
+            format!(
+                "{{\"line\":{},\"end\":{},\"kind\":{},\"name\":{},\"depth\":{}}}",
+                d.line,
+                d.end,
+                jstr(&d.kind),
+                jstr(&d.name),
+                d.depth
+            )
+        })
+        .collect();
+    format!("{{\"path\":{},\"defs\":[{}]}}\n", jstr(path), items.join(","))
+}
+
+// --- find ---------------------------------------------------------------------
+/// One search hit, optionally tagged with its enclosing scope (name, start, end).
+pub struct FindMatch {
+    pub line: usize,
+    pub text: String,
+    pub scope: Option<(String, usize, usize)>,
+}
+
+/// Human-readable search results.
+pub fn find_view(path: &str, pattern: &str, matches: &[FindMatch], color: bool) -> String {
+    let mut out = String::new();
+    let head = format!("┌─ find {} in {path} ─ {} match{} ", jstr(pattern), matches.len(), if matches.len() == 1 { "" } else { "es" });
+    out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(20))));
+    out.push('\n');
+    let gw = matches.iter().map(|m| m.line).max().unwrap_or(1).to_string().len().max(2);
+    for m in matches {
+        let num = paint(color, &format!("{COPPER}{BOLD}"), &format!("{:>w$}", m.line, w = gw));
+        let sep = paint(color, DIM, "│");
+        let mut line = format!("{num} {sep} {}", m.text.trim_end());
+        if let Some((scope, a, b)) = &m.scope {
+            line.push_str(&paint(color, DIM, &format!("   ↳ {scope} ({a}–{b})")));
+        }
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out.push_str(&paint(color, COPPER, &format!("└{}", "─".repeat(48))));
+    out.push('\n');
+    out
+}
+
+/// Machine-readable search results.
+pub fn find_json(path: &str, pattern: &str, matches: &[FindMatch]) -> String {
+    let items: Vec<String> = matches
+        .iter()
+        .map(|m| {
+            let scope = match &m.scope {
+                Some((name, a, b)) => format!(",\"in\":{},\"range\":[{},{}]", jstr(name), a, b),
+                None => String::new(),
+            };
+            format!("{{\"line\":{},\"text\":{}{}}}", m.line, jstr(m.text.trim_end()), scope)
+        })
+        .collect();
+    format!(
+        "{{\"path\":{},\"pattern\":{},\"matches\":[{}]}}\n",
+        jstr(path),
+        jstr(pattern),
+        items.join(",")
     )
 }
 
