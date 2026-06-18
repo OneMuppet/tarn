@@ -7,6 +7,7 @@
 //! understandable. It is *heuristic*, not semantic — documented as such.
 
 /// A detected definition (function, class, heading, …).
+#[derive(Clone)]
 pub struct Def {
     pub line: usize, // 1-based start
     pub end: usize,  // 1-based end, inclusive
@@ -224,6 +225,23 @@ pub fn qualified(path: &str, content: &str, target: usize) -> Option<(String, us
     Some((name, inner.line, inner.end))
 }
 
+/// The definition block at `line`: prefer one that *starts* there, else the
+/// innermost definition that contains it.
+pub fn block_at(path: &str, content: &str, line: usize) -> Option<Def> {
+    let defs = outline(path, content);
+    if let Some(d) = defs.iter().find(|d| d.line == line) {
+        return Some(d.clone());
+    }
+    defs.into_iter()
+        .filter(|d| d.line <= line && d.end >= line)
+        .max_by_key(|d| d.line)
+}
+
+/// The first definition named `name` (exact match).
+pub fn def_named(path: &str, content: &str, name: &str) -> Option<Def> {
+    outline(path, content).into_iter().find(|d| d.name == name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,6 +291,17 @@ def main():
         assert_eq!(defs[0].name, "Title");
         assert_eq!(defs[1].name, "Section");
         assert_eq!(defs[1].depth, 1);
+    }
+
+    #[test]
+    fn block_and_named_lookups() {
+        // `def_named` finds the method; `block_at` on a body line returns it.
+        let m = def_named("h.py", PY, "do_POST").unwrap();
+        assert_eq!((m.line, m.end), (7, 8));
+        let b = block_at("h.py", PY, 8).unwrap(); // line 8 is `return 2`
+        assert_eq!(b.name, "do_POST");
+        // a line that starts a def returns that def exactly
+        assert_eq!(block_at("h.py", PY, 3).unwrap().name, "Handler");
     }
 
     #[test]

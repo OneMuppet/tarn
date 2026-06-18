@@ -76,6 +76,8 @@ two give you structure cheaply — see the shape, then jump to the part you need
 
 ```sh
 tarn outline app.py            # a map of defs / classes / headings + line ranges
+tarn peek   app.py do_GET      # show JUST one definition, by name (no line counting)
+tarn show   app.py --block 27  # show the whole def at line 27 (any body line works)
 tarn find   app.py 'send_'     # literal search; each hit with its line number
 tarn find   src/   'send_'     # search a whole DIRECTORY (recursive), grouped by file
 tarn find   app.py 'send_' --enclosing   # ...and the definition that contains it

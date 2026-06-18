@@ -57,6 +57,7 @@ fn run(args: &[String]) -> u8 {
         "view" | "cat" => cmd_view(&args[1..]),
         "show" => cmd_show(&args[1..]),
         "outline" => cmd_outline(&args[1..]),
+        "peek" => cmd_peek(&args[1..]),
         "find" => cmd_find(&args[1..]),
         "replace" => cmd_replace(&args[1..]),
         "insert" => cmd_insert(&args[1..]),
@@ -227,6 +228,7 @@ fn cmd_show(args: &[String]) -> u8 {
     let mut highlight: Option<(usize, usize)> = None;
     let mut color_pref: Option<bool> = None;
     let mut json = false;
+    let mut block: Option<usize> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -235,6 +237,10 @@ fn cmd_show(args: &[String]) -> u8 {
             "--json" => json = true,
             "--plain" => color_pref = Some(false),
             "--color" => color_pref = Some(true),
+            "--block" => match next_usize(args, &mut i) {
+                Some(n) => block = Some(n),
+                None => return usage_err("show <file> --block N"),
+            },
             "--lines" => match next_range(args, &mut i) {
                 Some(r) => lines = Some(r),
                 None => return usage_err("show <file> --lines A-B"),
@@ -274,7 +280,23 @@ fn cmd_show(args: &[String]) -> u8 {
         }
     };
 
-    // Priority: explicit range > around > head > tail > all > auto.
+    // `--block N`: window the whole definition at line N, highlighting its head.
+    if let Some(n) = block {
+        match structure::block_at(file, &content, n) {
+            Some(d) => {
+                lines = Some((d.line, d.end));
+                if highlight.is_none() {
+                    highlight = Some((d.line, d.line));
+                }
+            }
+            None => {
+                eprintln!("tarn: no definition at line {n} in {file}");
+                return EXIT_NOT_FOUND;
+            }
+        }
+    }
+
+    // Priority: explicit range (incl. --block) > around > head > tail > all > auto.
     let win = if let Some((a, b)) = lines {
         Window::Range(a, b)
     } else if let Some(n) = around {
@@ -320,6 +342,42 @@ fn cmd_outline(args: &[String]) -> u8 {
         print!("{}", render::outline_json(&name, &defs));
     } else {
         print!("{}", render::outline_view(&name, &defs, color_pref.unwrap_or_else(use_color)));
+    }
+    let _ = io::stdout().flush();
+    EXIT_OK
+}
+
+/// `peek <file> <name> [--json] [--plain|--color]`
+/// Show just the definition named `name` (its whole block). Exit 1 if not found.
+fn cmd_peek(args: &[String]) -> u8 {
+    let json = args.iter().any(|a| a == "--json");
+    let color_pref = color_flag(args);
+    let positional: Vec<&str> = args.iter().map(|s| s.as_str()).filter(|s| !s.starts_with("--")).collect();
+    let (file, name) = match (positional.first(), positional.get(1)) {
+        (Some(f), Some(n)) => (*f, *n),
+        _ => return usage_err("peek <file> <name> [--json]"),
+    };
+    let content = match fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
+    let def = match structure::def_named(file, &content, name) {
+        Some(d) => d,
+        None => {
+            eprintln!("tarn: no definition named '{name}' in {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
+    let win = Window::Range(def.line, def.end);
+    let hl = Some((def.line, def.line));
+    let base = base_name(file);
+    if json {
+        print!("{}", render::show_json(&base, &content, &win, hl));
+    } else {
+        print!("{}", render::show(&base, &content, &win, hl, color_pref.unwrap_or_else(use_color)));
     }
     let _ = io::stdout().flush();
     EXIT_OK
@@ -814,6 +872,7 @@ USAGE:
 
   navigate (structure without reading the whole file):
     tarn outline <file>         map of defs/classes/headings  [--json]
+    tarn peek    <file> <name>  show just the definition named <name>  [--json]
     tarn find    <path> <text>  search a file OR directory; hits with file+line
         -i (ignore case) | --enclosing (tag hits w/ their def) | --limit N | --json
         --  <text>  search a pattern that starts with a dash
@@ -821,7 +880,7 @@ USAGE:
   documents (non-interactive — for scripts & AI harnesses):
     tarn show    <file>         editor-style snapshot to stdout
         --lines A-B | --around N [--context K] | --head [K] | --tail [K] | --all
-        --highlight A-B | --json | --plain | --color
+        --block N (the whole def at line N) | --highlight A-B | --json | --plain | --color
     tarn replace <file> <N> <text>        replace line N
     tarn insert  <file> <after-N> <text>  insert after line N (0=top)
     tarn delete  <file> <A-B>             delete line range  (alias: del)
