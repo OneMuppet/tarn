@@ -1,0 +1,17 @@
+[package]
+name = "tarn"
+version = "0.1.0"
+edition = "2021"
+authors = ["David Borgenvik"]
+description = "A tiny, understandable terminal editor that doubles as a scriptable .env tool for AI harnesses."
+
+# Zero dependencies on purpose. std only; raw mode is done by shelling out to
+# `stty`, which is always present. This is the deliberate "small + readable" choice.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+# NOTE: deliberately NOT setting panic = "abort". The RawMode Drop guard must run
+# on panic so the terminal is always restored to a sane state.
