@@ -415,8 +415,9 @@ pub fn find_view(pattern: &str, matches: &[FindMatch], files: usize, color: bool
     out
 }
 
-/// Machine-readable search results.
-pub fn find_json(pattern: &str, matches: &[FindMatch]) -> String {
+/// Machine-readable search results. `total` is the full match count; `matches`
+/// may be fewer (capped by `--limit`), so a consumer can tell it was truncated.
+pub fn find_json(pattern: &str, matches: &[FindMatch], total: usize) -> String {
     let items: Vec<String> = matches
         .iter()
         .map(|m| {
@@ -433,7 +434,13 @@ pub fn find_json(pattern: &str, matches: &[FindMatch]) -> String {
             )
         })
         .collect();
-    format!("{{\"pattern\":{},\"matches\":[{}]}}\n", jstr(pattern), items.join(","))
+    format!(
+        "{{\"pattern\":{},\"total\":{},\"shown\":{},\"matches\":[{}]}}\n",
+        jstr(pattern),
+        total,
+        matches.len(),
+        items.join(",")
+    )
 }
 
 // --- check --------------------------------------------------------------------

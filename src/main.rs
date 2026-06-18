@@ -523,7 +523,7 @@ fn cmd_find(args: &[String]) -> u8 {
     }
 
     if json {
-        print!("{}", render::find_json(pattern, &matches));
+        print!("{}", render::find_json(pattern, &matches, total));
     } else {
         let color = color_pref.unwrap_or_else(use_color);
         let shown_files = if multi { hit_files } else { 1 };
@@ -559,6 +559,10 @@ fn walk(dir: &PathBuf, out: &mut Vec<PathBuf>) {
         let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         if name.starts_with('.') {
             continue; // .git, .venv, dotfiles
+        }
+        // Don't follow symlinks — avoids loops and duplicate hits.
+        if fs::symlink_metadata(&path).map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+            continue;
         }
         if path.is_dir() {
             if matches!(name.as_str(), "target" | "node_modules" | "dist" | "build") {
