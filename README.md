@@ -27,6 +27,14 @@ without ever driving a TUI.
 - **Two modes, one binary.** A human gets a friendly editor; a harness gets a
   precise key=value CLI with meaningful exit codes.
 
+<div align="center">
+<br>
+<img src="assets/mascot.svg" alt="Cu, the tarn mascot" width="120">
+<br>
+<sub>meet <b>Cu</b> — the cursor come alive, copper slowly tarnishing to patina.<br>
+(Cu, as in the element symbol for copper. yes, really.)</sub>
+</div>
+
 ---
 
 ## Install
