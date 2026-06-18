@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["David Borgenvik"]
 description = "A tiny, understandable terminal editor that doubles as a scriptable .env tool for AI harnesses."
+license = "MIT"
 
 # Zero dependencies on purpose. std only; raw mode is done by shelling out to
 # `stty`, which is always present. This is the deliberate "small + readable" choice.
