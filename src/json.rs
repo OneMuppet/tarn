@@ -181,7 +181,13 @@ fn utf8_len(b: u8) -> usize {
 }
 
 fn parse(content: &str) -> Result<Node, String> {
-    Parser::new(content).parse_value()
+    let mut p = Parser::new(content);
+    let node = p.parse_value()?;
+    p.ws();
+    if p.i != content.len() {
+        return Err("trailing characters after JSON value".into());
+    }
+    Ok(node)
 }
 
 fn navigate<'n>(root: &'n Node, path: &str) -> Option<&'n Node> {
@@ -246,11 +252,50 @@ fn is_complete_json(t: &str) -> bool {
     }
 }
 
+/// Strict JSON number grammar: `-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?`.
+/// Rejects what `f64::parse` would wrongly accept (`1.`, `00`, `0.`, `+5`, `.5`).
 fn is_number(t: &str) -> bool {
-    let first_ok = matches!(t.chars().next(), Some(c) if c == '-' || c.is_ascii_digit());
-    first_ok
-        && t.chars().all(|c| c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E'))
-        && t.parse::<f64>().is_ok()
+    let b = t.as_bytes();
+    let n = b.len();
+    let mut i = 0;
+    let digits = |b: &[u8], i: &mut usize| -> bool {
+        let start = *i;
+        while *i < b.len() && b[*i].is_ascii_digit() {
+            *i += 1;
+        }
+        *i > start
+    };
+    if i < n && b[i] == b'-' {
+        i += 1;
+    }
+    // integer part: a lone 0, or a nonzero digit followed by more digits
+    match b.get(i) {
+        Some(b'0') => i += 1,
+        Some(c) if c.is_ascii_digit() => {
+            while i < n && b[i].is_ascii_digit() {
+                i += 1;
+            }
+        }
+        _ => return false,
+    }
+    // optional fraction (requires at least one digit after '.')
+    if b.get(i) == Some(&b'.') {
+        i += 1;
+        if !digits(b, &mut i) {
+            return false;
+        }
+    }
+    // optional exponent
+    if matches!(b.get(i), Some(b'e') | Some(b'E')) {
+        i += 1;
+        if matches!(b.get(i), Some(b'+') | Some(b'-')) {
+            i += 1;
+        }
+        if !digits(b, &mut i) {
+            return false;
+        }
+    }
+    i == n
 }
 
 fn encode_string(s: &str) -> String {
@@ -320,5 +365,28 @@ mod tests {
     #[test]
     fn invalid_json_errors() {
         assert!(get("{bad", "x").is_err());
+    }
+
+    #[test]
+    fn number_grammar_is_strict() {
+        // not valid JSON numbers → must be quoted, never emitted bare
+        for bad in ["1.", "00", "0.", "+5", ".5", "1abc", "1e", "--1"] {
+            let out = set(r#"{"k":1}"#, "k", bad).unwrap().unwrap();
+            assert_eq!(out, format!("{{\"k\":\"{bad}\"}}"), "{bad} must be quoted");
+        }
+        // valid JSON numbers → used verbatim (bare)
+        for good in ["0", "-0", "12", "1.5", "1e10", "-3.2e-4", "0.5"] {
+            let out = set(r#"{"k":1}"#, "k", good).unwrap().unwrap();
+            assert_eq!(out, format!("{{\"k\":{good}}}"), "{good} must be bare");
+        }
+    }
+
+    #[test]
+    fn trailing_junk_is_rejected() {
+        assert!(get(r#"{"a":1} junk"#, "a").is_err());
+        assert!(get("[1,2,3]xxx", "0").is_err());
+        assert!(get("42 junk", "").is_err());
+        // but trailing whitespace/newline is fine
+        assert_eq!(get("{\"a\":1}\n", "a").unwrap().as_deref(), Some("1"));
     }
 }
