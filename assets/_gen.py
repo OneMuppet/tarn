@@ -20,12 +20,13 @@ def step(p):
     i = int(p * len(TARNISH))
     return TARNISH[min(i, len(TARNISH) - 1)]
 
-# --- 5x7 pixel font (lowercase) ----------------------------------------------
+# --- pixel font (lowercase), each glyph trimmed to its own ink width so the
+# --- space between letters is governed purely by a uniform inter-glyph gap.
 GLYPHS = {
- 't': ["..#..", "..#..", ".###.", "..#..", "..#..", "..#..", "..##."],
+ 't': [".#.", ".#.", "###", ".#.", ".#.", ".#.", ".##"],
  'a': [".....", ".....", ".###.", "#...#", ".####", "#...#", ".####"],
- 'r': [".....", ".....", "#.##.", "##...", "#....", "#....", "#...."],
- 'n': [".....", ".....", "####.", "#..#.", "#..#.", "#..#.", "#..#."],
+ 'r': ["....", "....", "#.##", "##..", "#...", "#...", "#..."],
+ 'n': ["....", "....", "####", "#..#", "#..#", "#..#", "#..#"],
 }
 
 def esc(s):
@@ -67,24 +68,28 @@ def banner():
     # lines, so every letter-pixel fills exactly one grid square. Glyphs are
     # separated by exactly one empty grid column.
     word = "tarn"
-    C = GRID               # cell pitch == background grid (24)
-    GAP = 1                # one empty grid column between glyphs
+    C = GRID               # cell size == background grid cell (24): same size
+    GAP = 1                # one empty grid column between every glyph (uniform)
     X0, Y0 = 3 * GRID, 3 * GRID   # grid-aligned origin (72, 72)
-    total_cols = sum(5 for _ in word) + GAP * (len(word) - 1)
+    widths = [len(GLYPHS[ch][0]) for ch in word]
+    total_cols = sum(widths) + GAP * (len(word) - 1)
     col_cursor = 0
     cells = []
     for ch in word:
         g = GLYPHS[ch]
+        gw = len(g[0])
         for r in range(7):
-            for c in range(5):
+            for c in range(gw):
                 if g[r][c] == '#':
                     wc = col_cursor + c
                     color = step(wc / (total_cols - 1))
                     x = X0 + wc * C
                     y = Y0 + r * C
-                    # 1px inset on each side: the gaps land on the grid lines
-                    cells.append(rect(x + 1, y + 1, C - 2, C - 2, color))
-        col_cursor += 5 + GAP
+                    # full grid-cell square (letter pixel == grid cell); a thin
+                    # ink stroke keeps the grid lines visible through the letter
+                    cells.append(rect(x, y, C, C, color,
+                                      'stroke="#0a0f14" stroke-width="1"'))
+        col_cursor += gw + GAP
     out.append("".join(cells))
 
     # --- inverse-video status bar (like the real editor) ------------------
