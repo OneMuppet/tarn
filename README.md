@@ -5,12 +5,9 @@
 </div>
 
 ```
-        /\
-     /\/  \  /\        t a r n
-    /        \  \
-   /     ⌃    \         a tiny, understandable
-  /__________\        terminal editor
-  ~~~~~~~~~~~~~~~~
+  ████▓▓▒▒░░   t a r n   ░░▒▒▓▓████
+               a tiny, understandable
+               terminal editor
 ```
 
 **tarn** is a tiny terminal text editor you can actually understand — no modes, no
@@ -18,8 +15,10 @@ manual, the help is always on screen. It's also a scriptable `.env` tool, so an 
 harness (or a shell script) can read and edit key=value files deterministically
 without ever driving a TUI.
 
-> _A tarn is a small, clear mountain lake — and a quiet nod to "tarnish", the
-> aging of metal that becomes a patina._
+> _The name comes from **tarnish** — the slow aging of metal. Polished copper
+> tarnishes and, given time, becomes a **patina**; tarn is the small, sharp sibling
+> to [Patina](https://github.com/OneMuppet). (It's also, neatly, a clear mountain
+> lake.)_
 
 - **Zero dependencies.** Pure Rust, std only. Raw mode is done by shelling out to
   `stty` (always present) instead of pulling in a terminal crate.
