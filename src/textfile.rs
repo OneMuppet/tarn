@@ -3,62 +3,87 @@
 //! The companion to `envfile` for non-key=value documents. Line numbers are
 //! **1-based** to match what `show` prints in its gutter, so an agent can read a
 //! line number off the rendered view and edit exactly that line. Only the
-//! targeted lines change; every other line is preserved verbatim. The result
-//! always ends with a single trailing newline (same convention as `envfile`).
+//! targeted lines change; every other line is preserved **byte-for-byte** —
+//! including its line ending. The file's line-ending style (LF or CRLF) and its
+//! trailing-newline state are detected and preserved, so an edit never reflows
+//! or normalizes lines it didn't touch.
 
-/// Split into lines without their terminators.
+/// Detect the file's line ending and whether it ends with a newline, so edits
+/// round-trip untouched lines byte-for-byte: CRLF stays CRLF, and a file with no
+/// final newline keeps none.
+fn style(content: &str) -> (&'static str, bool) {
+    let crlf = content
+        .find('\n')
+        .map(|i| i > 0 && content.as_bytes()[i - 1] == b'\r')
+        .unwrap_or(false);
+    (if crlf { "\r\n" } else { "\n" }, content.ends_with('\n'))
+}
+
+/// Split into lines without their terminators (`\n` and `\r\n` both stripped).
 fn split(content: &str) -> Vec<String> {
     content.lines().map(|l| l.to_string()).collect()
 }
 
-/// Join lines back with a single trailing newline (empty stays empty).
-fn join(lines: Vec<String>) -> String {
+/// Reassemble lines using the file's own ending, restoring a final newline only
+/// if the original had one. An empty document stays empty.
+fn join(lines: Vec<String>, ending: &str, final_nl: bool) -> String {
     if lines.is_empty() {
-        String::new()
-    } else {
-        let mut s = lines.join("\n");
-        s.push('\n');
-        s
+        return String::new();
     }
+    let mut s = lines.join(ending);
+    if final_nl {
+        s.push_str(ending);
+    }
+    s
+}
+
+/// Split caller-supplied replacement text into lines, tolerating embedded CRLF.
+fn text_lines(text: &str) -> Vec<String> {
+    text.split('\n')
+        .map(|s| s.strip_suffix('\r').unwrap_or(s).to_string())
+        .collect()
 }
 
 /// Replace line `n` (1-based) with `text`. `text` may contain newlines, in which
 /// case it expands into multiple lines.
 pub fn replace(content: &str, n: usize, text: &str) -> Result<String, String> {
+    let (end, fin) = style(content);
     let mut lines = split(content);
     if n == 0 || n > lines.len() {
         return Err(format!("line {n} is out of range (file has {} lines)", lines.len()));
     }
-    let repl: Vec<String> = text.split('\n').map(str::to_string).collect();
-    lines.splice(n - 1..n, repl);
-    Ok(join(lines))
+    lines.splice(n - 1..n, text_lines(text));
+    Ok(join(lines, end, fin))
 }
 
 /// Insert `text` after line `after` (1-based; `0` inserts before the first line).
 /// `text` may contain newlines to insert several lines at once.
 pub fn insert(content: &str, after: usize, text: &str) -> Result<String, String> {
+    let (end, fin) = style(content);
     let mut lines = split(content);
     if after > lines.len() {
         return Err(format!("line {after} is out of range (file has {} lines)", lines.len()));
     }
-    let ins: Vec<String> = text.split('\n').map(str::to_string).collect();
-    lines.splice(after..after, ins);
-    Ok(join(lines))
+    lines.splice(after..after, text_lines(text));
+    Ok(join(lines, end, fin))
 }
 
 /// Delete lines `a..=b` (1-based, inclusive).
 pub fn delete(content: &str, a: usize, b: usize) -> Result<String, String> {
+    let (end, fin) = style(content);
     let mut lines = split(content);
     if a == 0 || a > b || b > lines.len() {
         return Err(format!("range {a}-{b} is out of range (file has {} lines)", lines.len()));
     }
     lines.drain(a - 1..b);
-    Ok(join(lines))
+    Ok(join(lines, end, fin))
 }
 
-/// Normalize arbitrary input to a document with exactly one trailing newline.
+/// Normalize arbitrary input, preserving its own line ending and trailing-newline
+/// state (does not force a final newline).
 pub fn normalize(input: &str) -> String {
-    join(split(input))
+    let (end, fin) = style(input);
+    join(split(input), end, fin)
 }
 
 /// The text of line `n` (1-based), without terminator.
@@ -92,6 +117,7 @@ pub enum Op {
 /// same line) are rejected, and the whole batch fails as a unit (returns `Err`)
 /// without producing partial output.
 pub fn apply_ops(content: &str, ops: &[Op]) -> Result<String, String> {
+    let (end, fin) = style(content);
     let orig: Vec<String> = split(content);
     let n = orig.len();
 
@@ -124,7 +150,7 @@ pub fn apply_ops(content: &str, ops: &[Op]) -> Result<String, String> {
                 if deleted[i] || replaced[i].is_some() {
                     return Err(format!("conflict: line {line} edited twice"));
                 }
-                replaced[i] = Some(text.split('\n').map(str::to_string).collect());
+                replaced[i] = Some(text_lines(text));
             }
             Op::Delete(a, b) => {
                 if *a == 0 || a > b || *b > n {
@@ -141,7 +167,7 @@ pub fn apply_ops(content: &str, ops: &[Op]) -> Result<String, String> {
                 if *after > n {
                     return Err(format!("insert: line {after} out of range (0..={n})"));
                 }
-                inserts[*after].extend(text.split('\n').map(str::to_string));
+                inserts[*after].extend(text_lines(text));
             }
         }
     }
@@ -159,7 +185,7 @@ pub fn apply_ops(content: &str, ops: &[Op]) -> Result<String, String> {
         }
         out.extend(inserts[i + 1].clone());
     }
-    Ok(join(out))
+    Ok(join(out, end, fin))
 }
 
 #[cfg(test)]
@@ -216,9 +242,20 @@ mod tests {
     }
 
     #[test]
-    fn always_single_trailing_newline() {
-        assert!(replace("a", 1, "b").unwrap().ends_with("b\n"));
-        assert!(!replace("a", 1, "b").unwrap().ends_with("\n\n"));
+    fn preserves_trailing_newline_state() {
+        // had a final newline → keep exactly one
+        assert_eq!(replace("a\n", 1, "b").unwrap(), "b\n");
+        // had none → add none (don't mutate the untouched last line)
+        assert_eq!(replace("a", 1, "b").unwrap(), "b");
+    }
+
+    #[test]
+    fn preserves_crlf_on_untouched_lines() {
+        let crlf = "keep\r\nedit\r\nkeep2\r\n";
+        assert_eq!(replace(crlf, 2, "EDITED").unwrap(), "keep\r\nEDITED\r\nkeep2\r\n");
+        // a multi-op batch on a CRLF file keeps CRLF too
+        let ops = vec![Op::Delete(1, 1), Op::Insert(3, "ADDED".to_string())];
+        assert_eq!(apply_ops(crlf, &ops).unwrap(), "edit\r\nkeep2\r\nADDED\r\n");
     }
 
     #[test]

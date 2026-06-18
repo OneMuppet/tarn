@@ -299,10 +299,11 @@ fn cmd_show(args: &[String]) -> u8 {
     EXIT_OK
 }
 
-/// `outline <file> [--json]` — a structural map of the file (defs, headings).
+/// `outline <file> [--json] [--plain|--color]` — a structural map of the file.
 fn cmd_outline(args: &[String]) -> u8 {
     let json = args.iter().any(|a| a == "--json");
-    let file = match args.iter().find(|a| !a.starts_with("--")) {
+    let color_pref = color_flag(args);
+    let file = match args.iter().find(|a| !a.starts_with('-')) {
         Some(f) => f.as_str(),
         None => return usage_err("outline <file> [--json]"),
     };
@@ -318,7 +319,7 @@ fn cmd_outline(args: &[String]) -> u8 {
     if json {
         print!("{}", render::outline_json(&name, &defs));
     } else {
-        print!("{}", render::outline_view(&name, &defs, use_color()));
+        print!("{}", render::outline_view(&name, &defs, color_pref.unwrap_or_else(use_color)));
     }
     let _ = io::stdout().flush();
     EXIT_OK
@@ -334,23 +335,46 @@ fn cmd_find(args: &[String]) -> u8 {
     let mut enclosing = false;
     let mut json = false;
     let mut limit = 100usize;
+    let mut color_pref: Option<bool> = None;
+    let mut end_flags = false; // set by `--`: everything after is positional
 
     let mut i = 0;
     while i < args.len() {
-        match args[i].as_str() {
-            "-i" | "--ignore-case" => ignore_case = true,
-            "--enclosing" => enclosing = true,
-            "--json" => json = true,
-            "--limit" => match next_usize(args, &mut i) {
-                Some(n) => limit = n,
-                None => return usage_err("find <file> <pattern> --limit N"),
-            },
-            s if s.starts_with("--") || (s.starts_with('-') && s.len() == 2 && file.is_some()) => {
-                eprintln!("tarn: unknown flag {s}");
-                return EXIT_USAGE;
+        let a = args[i].as_str();
+        let positional = end_flags;
+        if !positional {
+            match a {
+                "--" => {
+                    end_flags = true;
+                    i += 1;
+                    continue;
+                }
+                "-i" | "--ignore-case" => ignore_case = true,
+                "--enclosing" => enclosing = true,
+                "--json" => json = true,
+                "--plain" => color_pref = Some(false),
+                "--color" => color_pref = Some(true),
+                "--limit" => match next_usize(args, &mut i) {
+                    Some(n) => limit = n,
+                    None => return usage_err("find <file> <pattern> --limit N"),
+                },
+                // Once the file is known, the next token is the pattern verbatim
+                // (so patterns like `--json` are searchable; or use `--`).
+                s if s.starts_with('-') && file.is_none() => {
+                    eprintln!("tarn: unknown flag {s}");
+                    return EXIT_USAGE;
+                }
+                s if file.is_none() => file = Some(s),
+                s => pattern = Some(s),
             }
-            s if file.is_none() => file = Some(s),
-            s => pattern = Some(s),
+            i += 1;
+            continue;
+        }
+        // positional (after `--`)
+        if file.is_none() {
+            file = Some(a);
+        } else {
+            pattern = Some(a);
         }
         i += 1;
     }
@@ -393,7 +417,8 @@ fn cmd_find(args: &[String]) -> u8 {
     if json {
         print!("{}", render::find_json(&name, pattern, &matches));
     } else {
-        print!("{}", render::find_view(&name, pattern, &matches, use_color()));
+        let color = color_pref.unwrap_or_else(use_color);
+        print!("{}", render::find_view(&name, pattern, &matches, color));
         if total > matches.len() {
             println!("… {} more match(es) (raise --limit)", total - matches.len());
         }
@@ -631,6 +656,17 @@ fn commit(file: &str, op: &str, flags: &EditFlags, old: &str, new: &str) -> u8 {
 /// Color is on when stdout is a terminal, unless overridden. Honors NO_COLOR.
 fn use_color() -> bool {
     std::env::var_os("NO_COLOR").is_none() && io::stdout().is_terminal()
+}
+
+/// An explicit `--plain` / `--color` preference, if present.
+fn color_flag(args: &[String]) -> Option<bool> {
+    if args.iter().any(|a| a == "--plain") {
+        Some(false)
+    } else if args.iter().any(|a| a == "--color") {
+        Some(true)
+    } else {
+        None
+    }
 }
 
 /// The last path component, for the `show` title bar.

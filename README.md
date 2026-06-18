@@ -142,8 +142,10 @@ some-generator | tarn write app.py --diff         # replace whole file from stdi
 ```
 
 Line numbers are 1-based and match `show`'s gutter, so an agent reads a number
-off the view and edits exactly that line. Edits never reflow untouched lines and
-always leave a single trailing newline.
+off the view and edits exactly that line. Untouched lines are preserved
+**byte-for-byte**: the file's line ending (LF or CRLF) and its trailing-newline
+state are detected and kept, so an edit never reflows or normalizes a line it
+didn't touch.
 
 Two more flags make the edit commands agent-friendly:
 
