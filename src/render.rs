@@ -443,6 +443,66 @@ pub fn find_json(pattern: &str, matches: &[FindMatch], total: usize) -> String {
     )
 }
 
+// --- rename -------------------------------------------------------------------
+/// Human-readable rename summary: per-file counts.
+pub fn rename_view(
+    from: &str,
+    to: &str,
+    files: &[(String, usize)],
+    total: usize,
+    word: bool,
+    dry_run: bool,
+    color: bool,
+) -> String {
+    let mut out = String::new();
+    let tags = format!(
+        "{}{}",
+        if word { " word" } else { " substring" },
+        if dry_run { " dry-run" } else { "" }
+    );
+    let head = format!(
+        "┌─ rename {} → {} ─ {total} in {} file(s){tags} ",
+        jstr(from),
+        jstr(to),
+        files.len()
+    );
+    out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(12))));
+    out.push('\n');
+    let cw = files.iter().map(|(_, c)| c.to_string().len()).max().unwrap_or(1).max(2);
+    for (f, c) in files {
+        let count = paint(color, &format!("{COPPER}{BOLD}"), &format!("{:>w$}", c, w = cw));
+        let sep = paint(color, DIM, "│");
+        out.push_str(&format!("{count} {sep} {f}\n"));
+    }
+    out.push_str(&paint(color, COPPER, &format!("└{}", "─".repeat(40))));
+    out.push('\n');
+    out
+}
+
+/// Machine-readable rename result.
+pub fn rename_json(
+    from: &str,
+    to: &str,
+    files: &[(String, usize)],
+    total: usize,
+    word: bool,
+    dry_run: bool,
+) -> String {
+    let items: Vec<String> = files
+        .iter()
+        .map(|(f, c)| format!("{{\"file\":{},\"count\":{}}}", jstr(f), c))
+        .collect();
+    format!(
+        "{{\"from\":{},\"to\":{},\"word\":{},\"dry_run\":{},\"total\":{},\"files\":[{}]}}\n",
+        jstr(from),
+        jstr(to),
+        word,
+        dry_run,
+        total,
+        items.join(",")
+    )
+}
+
 // --- check --------------------------------------------------------------------
 /// Human-readable hygiene report.
 pub fn check_view(path: &str, issues: &[Issue], color: bool) -> String {

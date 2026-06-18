@@ -65,6 +65,7 @@ fn run(args: &[String]) -> u8 {
         "delete" | "del" => cmd_delete(&args[1..]),
         "write" => cmd_write(&args[1..]),
         "apply" => cmd_apply(&args[1..]),
+        "rename" => cmd_rename(&args[1..]),
         // Anything else is treated as a filename to open.
         _ => open_file(first),
     }
@@ -343,6 +344,70 @@ fn cmd_outline(args: &[String]) -> u8 {
         print!("{}", render::outline_json(&name, &defs));
     } else {
         print!("{}", render::outline_view(&name, &defs, color_pref.unwrap_or_else(use_color)));
+    }
+    let _ = io::stdout().flush();
+    EXIT_OK
+}
+
+/// `rename <path> <old> <new> [--substring] [--dry-run] [--json] [--plain|--color]`
+/// Whole-word by default. `path` may be a file or directory (recursive).
+fn cmd_rename(args: &[String]) -> u8 {
+    let substring = args.iter().any(|a| a == "--substring");
+    let dry_run = args.iter().any(|a| a == "--dry-run");
+    let json = args.iter().any(|a| a == "--json");
+    let color_pref = color_flag(args);
+    let word = !substring;
+    let pos: Vec<&str> = args.iter().map(|s| s.as_str()).filter(|s| !s.starts_with("--")).collect();
+    let (path, old, new) = match (pos.first(), pos.get(1), pos.get(2)) {
+        (Some(p), Some(o), Some(n)) => (*p, *o, *n),
+        _ => return usage_err("rename <path> <old> <new> [--substring] [--dry-run] [--json]"),
+    };
+    if old.is_empty() {
+        return usage_err("rename: <old> must not be empty");
+    }
+
+    let files = collect_files(path);
+    if files.is_empty() {
+        eprintln!("tarn: no readable files at {path}");
+        return EXIT_NOT_FOUND;
+    }
+
+    // Compute every change first, then write — so a dry-run is free and a real
+    // run doesn't start writing until all edits are known.
+    let mut changes: Vec<(String, String, usize)> = Vec::new(); // (file, new_content, count)
+    let mut total = 0usize;
+    for f in &files {
+        let content = match fs::read_to_string(f) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let (updated, count) = textfile::rename(&content, old, new, word);
+        if count > 0 {
+            total += count;
+            changes.push((f.to_string_lossy().to_string(), updated, count));
+        }
+    }
+
+    if total == 0 {
+        eprintln!("tarn: no occurrences of '{old}'");
+        return EXIT_NOT_FOUND;
+    }
+
+    if !dry_run {
+        for (f, content, _) in &changes {
+            if let Err(e) = fs::write(f, content) {
+                eprintln!("tarn: cannot write {f}: {e}");
+                return EXIT_USAGE;
+            }
+        }
+    }
+
+    let summary: Vec<(String, usize)> = changes.iter().map(|(f, _, c)| (f.clone(), *c)).collect();
+    if json {
+        print!("{}", render::rename_json(old, new, &summary, total, word, dry_run));
+    } else {
+        let color = color_pref.unwrap_or_else(use_color);
+        print!("{}", render::rename_view(old, new, &summary, total, word, dry_run, color));
     }
     let _ = io::stdout().flush();
     EXIT_OK
@@ -923,6 +988,8 @@ USAGE:
     tarn delete  <file> <A-B>             delete line range  (alias: del)
     tarn write   <file>                   replace file from stdin
     tarn apply   <file>                   batch ops from stdin, atomically
+    tarn rename  <path> <old> <new>       whole-word rename in a file/dir
+        --substring (match anywhere) | --dry-run (preview)
         edit flags:  --diff (preview) | --json | --dry-run (don't write)
         --expect <text>  guard: fail (exit 3) unless the target matches
 

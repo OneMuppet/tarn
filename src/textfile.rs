@@ -188,6 +188,42 @@ pub fn apply_ops(content: &str, ops: &[Op]) -> Result<String, String> {
     Ok(join(out, end, fin))
 }
 
+fn is_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Replace every occurrence of `from` with `to`, returning (new_content, count).
+/// With `word`, only whole-word matches count (boundaries are any non
+/// `[A-Za-z0-9_]` byte, or start/end of file). Operates on the raw string, so
+/// line endings are preserved untouched.
+pub fn rename(content: &str, from: &str, to: &str, word: bool) -> (String, usize) {
+    if from.is_empty() {
+        return (content.to_string(), 0);
+    }
+    let bytes = content.as_bytes();
+    let mut out = String::with_capacity(content.len());
+    let mut i = 0;
+    let mut count = 0;
+    while i < content.len() {
+        if content[i..].starts_with(from) {
+            let end = i + from.len();
+            let before_ok = !word || i == 0 || !is_word_byte(bytes[i - 1]);
+            let after_ok = !word || end >= content.len() || !is_word_byte(bytes[end]);
+            if before_ok && after_ok {
+                out.push_str(to);
+                i = end;
+                count += 1;
+                continue;
+            }
+        }
+        // Advance one whole char (keeps us on UTF-8 boundaries).
+        let ch = content[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    (out, count)
+}
+
 /// A hygiene problem found by `check`.
 pub struct Issue {
     pub line: Option<usize>,
@@ -364,6 +400,28 @@ mod tests {
         let kinds: Vec<&str> = check("a  \n\tb\nc").iter().map(|i| i.kind).collect();
         assert!(kinds.contains(&"trailing-ws")); // line 1
         assert!(kinds.contains(&"no-final-newline"));
+    }
+
+    #[test]
+    fn rename_whole_word_only() {
+        // 'port' must not touch 'import' or 'export'
+        let (out, n) = rename("import port export\nport = port\n", "port", "PORT", true);
+        assert_eq!(out, "import PORT export\nPORT = PORT\n");
+        assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn rename_substring_mode_matches_anywhere() {
+        let (out, n) = rename("import port", "port", "X", false);
+        assert_eq!(out, "imX X");
+        assert_eq!(n, 2);
+    }
+
+    #[test]
+    fn rename_preserves_crlf() {
+        let (out, n) = rename("a port\r\nb\r\n", "port", "PORT", true);
+        assert_eq!(out, "a PORT\r\nb\r\n");
+        assert_eq!(n, 1);
     }
 
     #[test]

@@ -210,6 +210,20 @@ Ops: `expect <N> <text>`, `replace <N> <text>`, `insert <after-N> <text>`,
 `delete <A-B>`. Blank lines and `#` comments are ignored. Combine with
 `--dry-run`/`--json` like any edit.
 
+### Rename across a file or directory
+
+`tarn rename` does a **whole-word** rename by default, so `port` never touches
+`import` or `use_port`. Point it at a file or a directory (recursive), preview
+with `--dry-run`, then run for real — line endings are preserved untouched.
+
+```sh
+tarn rename src/ oldName newName --dry-run   # preview: per-file counts, nothing written
+tarn rename src/ oldName newName             # apply (computes all, then writes)
+tarn rename config.ini old new --substring   # match anywhere, not just whole words
+```
+
+Exit 1 if there were no occurrences. `--json` reports `{from,to,word,total,files:[…]}`.
+
 ## The scriptable side (for AI harnesses & scripts)
 
 These are non-interactive and deterministic. Edits are **surgical**: comments,
