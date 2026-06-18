@@ -1,0 +1,309 @@
+//! Presentation for the non-interactive path: the `show` view (an editor-style
+//! snapshot printed to stdout, so an agent can "open" a document right in the
+//! chat transcript) and the `--diff` renderer (so edits are reviewable inline).
+//!
+//! Everything here returns a `String`; the caller prints it. Color is optional
+//! and off by default when stdout is not a terminal, so harness-captured output
+//! stays clean (box-drawing only, no escape soup).
+
+// --- brand palette (truecolor) ----------------------------------------------
+const COPPER: &str = "\x1b[38;2;199;117;46m";
+const MINT: &str = "\x1b[38;2;127;209;176m"; // additions
+const RUST: &str = "\x1b[38;2;205;110;90m";  // removals
+const DIM: &str = "\x1b[2m";
+const BOLD: &str = "\x1b[1m";
+const RESET: &str = "\x1b[0m";
+
+fn paint(on: bool, code: &str, s: &str) -> String {
+    if on {
+        format!("{code}{s}{RESET}")
+    } else {
+        s.to_string()
+    }
+}
+
+fn width(s: &str) -> usize {
+    s.chars().count()
+}
+
+// --- windowing ----------------------------------------------------------------
+/// Which slice of a document `show` should render.
+pub enum Window {
+    All,
+    Range(usize, usize),
+    Around(usize, usize), // (line, context)
+    Head(usize),
+    Tail(usize),
+    Auto,
+}
+
+// Auto mode: show the whole file if short, else the first AUTO_HEAD lines.
+const AUTO_FULL: usize = 40;
+const AUTO_HEAD: usize = 30;
+
+impl Window {
+    /// Resolve to an inclusive 1-based (start, end). For an empty file returns
+    /// (1, 0), an empty range.
+    fn resolve(&self, total: usize) -> (usize, usize) {
+        if total == 0 {
+            return (1, 0);
+        }
+        let clamp = |n: usize| n.clamp(1, total);
+        match *self {
+            Window::All => (1, total),
+            Window::Range(a, b) => {
+                let a = clamp(a);
+                (a, clamp(b).max(a))
+            }
+            Window::Around(n, k) => (n.saturating_sub(k).max(1), clamp(n + k)),
+            Window::Head(k) => (1, clamp(k)),
+            Window::Tail(k) => (total.saturating_sub(k.saturating_sub(1)).max(1), total),
+            Window::Auto => {
+                if total <= AUTO_FULL {
+                    (1, total)
+                } else {
+                    (1, AUTO_HEAD)
+                }
+            }
+        }
+    }
+}
+
+/// Render the editor-style "open" view of `content`.
+pub fn show(
+    name: &str,
+    content: &str,
+    win: &Window,
+    highlight: Option<(usize, usize)>,
+    color: bool,
+) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let total = lines.len();
+    let (start, end) = win.resolve(total);
+
+    let gutter = total.max(1).to_string().len().max(2);
+
+    // Frame width: fit the shown content, but stay sane for a chat window.
+    let mut inner = 44;
+    if start <= end {
+        for ln in start..=end {
+            let w = gutter + 3 + width(lines[ln - 1]);
+            inner = inner.max(w);
+        }
+    }
+    inner = inner.min(110);
+
+    let hit = |ln: usize| matches!(highlight, Some((a, b)) if ln >= a && ln <= b);
+
+    let mut out = String::new();
+
+    // top rule:  ┌─ name ─ N lines ───────
+    let head = format!("┌─ {name} ─ {total} lines ");
+    let top = format!("{head}{}", "─".repeat(inner.saturating_sub(width(&head))));
+    out.push_str(&paint(color, COPPER, &top));
+    out.push('\n');
+
+    if total == 0 {
+        out.push_str(&paint(color, DIM, "│  (empty file)"));
+        out.push('\n');
+    }
+
+    for ln in start..=end {
+        if ln == 0 || ln > total {
+            break;
+        }
+        let marker = if hit(ln) { "▸" } else { " " };
+        let num = format!("{:>w$}", ln, w = gutter);
+        let body = lines[ln - 1];
+        // Uniform layout: "<marker><number> │ <text>"
+        let pre = format!("{marker}{num}");
+        let pre = if hit(ln) {
+            paint(color, &format!("{COPPER}{BOLD}"), &pre)
+        } else {
+            paint(color, DIM, &pre)
+        };
+        let sep = paint(color, DIM, "│");
+        out.push_str(&format!("{pre} {sep} {body}"));
+        out.push('\n');
+    }
+
+    // bottom rule with window context
+    let above = start.saturating_sub(1);
+    let below = total.saturating_sub(end);
+    let mut foot = if total == 0 {
+        "└─ no lines ".to_string()
+    } else {
+        format!("└─ lines {start}–{end} ")
+    };
+    if above > 0 {
+        foot.push_str(&format!("· {above} above "));
+    }
+    if below > 0 {
+        foot.push_str(&format!("· {below} below "));
+    }
+    let bottom = format!("{foot}{}", "─".repeat(inner.saturating_sub(width(&foot))));
+    out.push_str(&paint(color, COPPER, &bottom));
+    out.push('\n');
+    out
+}
+
+// --- diff ---------------------------------------------------------------------
+enum Op {
+    Eq(String),
+    Del(String),
+    Ins(String),
+}
+
+/// A compact, line-numbered diff of `old` -> `new`, with `context` unchanged
+/// lines around each change and `⋯` where unchanged runs are skipped.
+pub fn diff(old: &str, new: &str, color: bool) -> String {
+    let a: Vec<&str> = old.lines().collect();
+    let b: Vec<&str> = new.lines().collect();
+    let (n, m) = (a.len(), b.len());
+
+    // Longest common subsequence table (suffix form).
+    let mut dp = vec![vec![0u32; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            dp[i][j] = if a[i] == b[j] {
+                dp[i + 1][j + 1] + 1
+            } else {
+                dp[i + 1][j].max(dp[i][j + 1])
+            };
+        }
+    }
+
+    // Walk the table into an edit script.
+    let mut ops: Vec<Op> = Vec::new();
+    let (mut i, mut j) = (0, 0);
+    while i < n && j < m {
+        if a[i] == b[j] {
+            ops.push(Op::Eq(a[i].to_string()));
+            i += 1;
+            j += 1;
+        } else if dp[i + 1][j] >= dp[i][j + 1] {
+            ops.push(Op::Del(a[i].to_string()));
+            i += 1;
+        } else {
+            ops.push(Op::Ins(b[j].to_string()));
+            j += 1;
+        }
+    }
+    while i < n {
+        ops.push(Op::Del(a[i].to_string()));
+        i += 1;
+    }
+    while j < m {
+        ops.push(Op::Ins(b[j].to_string()));
+        j += 1;
+    }
+
+    const CONTEXT: usize = 3;
+    let changed: Vec<bool> = ops
+        .iter()
+        .map(|o| !matches!(o, Op::Eq(_)))
+        .collect();
+    if !changed.iter().any(|c| *c) {
+        return paint(color, DIM, "(no changes)") + "\n";
+    }
+    // Keep an Eq op only if it's within CONTEXT of some change.
+    let keep: Vec<bool> = (0..ops.len())
+        .map(|idx| {
+            let lo = idx.saturating_sub(CONTEXT);
+            let hi = (idx + CONTEXT).min(ops.len() - 1);
+            (lo..=hi).any(|k| changed[k])
+        })
+        .collect();
+
+    let gw = n.max(m).max(1).to_string().len().max(2);
+    let mut out = String::new();
+    let (mut anum, mut bnum) = (0usize, 0usize); // 1-based as we advance
+    let mut skipping = false;
+    for (idx, op) in ops.iter().enumerate() {
+        match op {
+            Op::Eq(_) => {
+                anum += 1;
+                bnum += 1;
+            }
+            Op::Del(_) => anum += 1,
+            Op::Ins(_) => bnum += 1,
+        }
+        if !keep[idx] {
+            if !skipping {
+                out.push_str(&paint(color, DIM, "  ⋯"));
+                out.push('\n');
+                skipping = true;
+            }
+            continue;
+        }
+        skipping = false;
+        match op {
+            Op::Eq(t) => {
+                let line = format!("   {:>w$}   {}", bnum, t, w = gw);
+                out.push_str(&paint(color, DIM, &line));
+            }
+            Op::Del(t) => {
+                let line = format!("-  {:>w$}   {}", anum, t, w = gw);
+                out.push_str(&paint(color, RUST, &line));
+            }
+            Op::Ins(t) => {
+                let line = format!("+  {:>w$}   {}", bnum, t, w = gw);
+                out.push_str(&paint(color, MINT, &line));
+            }
+        }
+        out.push('\n');
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_resolves_clamped() {
+        assert_eq!(Window::Range(2, 5).resolve(3), (2, 3));
+        assert_eq!(Window::Around(5, 2).resolve(10), (3, 7));
+        assert_eq!(Window::Tail(2).resolve(10), (9, 10));
+        assert_eq!(Window::Head(3).resolve(10), (1, 3));
+        assert_eq!(Window::Auto.resolve(10), (1, 10));
+        assert_eq!(Window::Auto.resolve(100), (1, AUTO_HEAD));
+    }
+
+    #[test]
+    fn show_has_frame_and_numbers() {
+        let v = show("f.txt", "a\nb\nc\n", &Window::All, None, false);
+        assert!(v.contains("f.txt"));
+        assert!(v.contains("3 lines"));
+        assert!(v.contains("1 │ a"));
+        assert!(v.contains("3 │ c"));
+    }
+
+    #[test]
+    fn show_marks_highlight() {
+        let v = show("f.txt", "a\nb\nc\n", &Window::All, Some((2, 2)), false);
+        assert!(v.contains("▸ 2 │ b"));
+    }
+
+    #[test]
+    fn show_reports_hidden_lines() {
+        let v = show("f.txt", &"x\n".repeat(100), &Window::Head(5), None, false);
+        assert!(v.contains("95 below"));
+    }
+
+    #[test]
+    fn diff_shows_add_and_remove() {
+        let d = diff("a\nb\nc\n", "a\nB\nc\n", false);
+        assert!(d.lines().any(|l| l.starts_with('-') && l.ends_with('b')));
+        assert!(d.lines().any(|l| l.starts_with('+') && l.ends_with('B')));
+        // unchanged context line "a" is kept and not marked
+        assert!(d
+            .lines()
+            .any(|l| l.ends_with('a') && !l.starts_with('-') && !l.starts_with('+')));
+    }
+
+    #[test]
+    fn diff_no_change() {
+        assert!(diff("a\n", "a\n", false).contains("no changes"));
+    }
+}

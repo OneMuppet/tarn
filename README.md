@@ -69,6 +69,56 @@ The editor only starts when stdout is a real terminal. If you pipe into it or ru
 it under a harness, `tarn` won't try to be a TUI — it prints the file and points
 you at the subcommands below.
 
+## Opening & editing documents (for AI harnesses)
+
+The interactive editor needs a real terminal, which an agent like Claude Code
+doesn't have — its commands' stdout just lands in the chat. So tarn gives an
+agent a way to **open a document right in the conversation** and edit it
+precisely, entirely through stdout and exit codes.
+
+**Open a document** — an editor-style, windowed snapshot:
+
+```sh
+tarn show app.py                       # auto window (whole file if short)
+tarn show app.py --lines 20-40         # a specific range
+tarn show app.py --around 27 --context 4   # 4 lines either side of line 27
+tarn show app.py --head 30   # or --tail 30, or --all
+tarn show app.py --around 27 --highlight 27   # mark the line of interest
+```
+
+```
+┌─ app.py ─ 7 lines ────────────────
+  1 │ def greet(name):
+▸ 2 │     print("hi " + name)
+  3 │
+└─ lines 1–3 · 4 below ─────────────
+```
+
+Color is on when stdout is a TTY and off otherwise (honoring `NO_COLOR`), so
+harness-captured output stays clean; force it with `--plain` / `--color`.
+
+**Edit by line** — surgical, like the `.env` commands but for any text. Add
+`--diff` to print a line-numbered diff so the change is reviewable inline:
+
+```sh
+tarn replace app.py 2 '    print(f"hi {name}!")' --diff
+tarn insert  app.py 0 '#!/usr/bin/env python3'   # 0 = insert at the top
+tarn delete  app.py 5-6                           # (alias: del)
+some-generator | tarn write app.py --diff         # replace whole file from stdin
+```
+
+```
+    1   def greet(name):
+-   2       print("hi " + name)
++   2       print(f"hi {name}!")
+    3
+  ⋯
+```
+
+Line numbers are 1-based and match `show`'s gutter, so an agent reads a number
+off the view and edits exactly that line. Edits never reflow untouched lines and
+always leave a single trailing newline.
+
 ## The scriptable side (for AI harnesses & scripts)
 
 These are non-interactive and deterministic. Edits are **surgical**: comments,
@@ -139,6 +189,8 @@ src/main.rs       arg parsing → TUI or subcommand dispatch
 src/terminal.rs   RawMode guard, size(), read_key(), Key
 src/editor.rs     the full-screen editor
 src/envfile.rs    surgical get/set/unset/keys
+src/textfile.rs   line-addressable replace/insert/delete
+src/render.rs     the `show` snapshot view + `--diff` renderer
 ```
 
 ## License
