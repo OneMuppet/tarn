@@ -59,6 +59,7 @@ fn run(args: &[String]) -> u8 {
         "outline" => cmd_outline(&args[1..]),
         "peek" => cmd_peek(&args[1..]),
         "find" => cmd_find(&args[1..]),
+        "check" => cmd_check(&args[1..]),
         "replace" => cmd_replace(&args[1..]),
         "insert" => cmd_insert(&args[1..]),
         "delete" | "del" => cmd_delete(&args[1..]),
@@ -345,6 +346,37 @@ fn cmd_outline(args: &[String]) -> u8 {
     }
     let _ = io::stdout().flush();
     EXIT_OK
+}
+
+/// `check <file> [--json] [--plain|--color]` — fast file-hygiene gate.
+/// Exit 0 if clean, 1 if any issue (or unreadable).
+fn cmd_check(args: &[String]) -> u8 {
+    let json = args.iter().any(|a| a == "--json");
+    let color_pref = color_flag(args);
+    let file = match args.iter().find(|a| !a.starts_with('-')) {
+        Some(f) => f.as_str(),
+        None => return usage_err("check <file> [--json]"),
+    };
+    let content = match fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
+    let issues = textfile::check(&content);
+    let name = base_name(file);
+    if json {
+        print!("{}", render::check_json(&name, &issues));
+    } else {
+        print!("{}", render::check_view(&name, &issues, color_pref.unwrap_or_else(use_color)));
+    }
+    let _ = io::stdout().flush();
+    if issues.is_empty() {
+        EXIT_OK
+    } else {
+        EXIT_NOT_FOUND // nonzero = "not clean", usable as a gate
+    }
 }
 
 /// `peek <file> <name> [--json] [--plain|--color]`
@@ -876,6 +908,7 @@ USAGE:
     tarn find    <path> <text>  search a file OR directory; hits with file+line
         -i (ignore case) | --enclosing (tag hits w/ their def) | --limit N | --json
         --  <text>  search a pattern that starts with a dash
+    tarn check   <file>         file-hygiene gate (0 clean / 1 issues)  [--json]
 
   documents (non-interactive — for scripts & AI harnesses):
     tarn show    <file>         editor-style snapshot to stdout

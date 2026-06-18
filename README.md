@@ -90,6 +90,17 @@ hidden entries and `target`/`node_modules`/`dist`/`build`, and non-text files),
 grouping hits by file. `--json` hits carry their `file`, so results chain
 straight into `show`/edits across the repo.
 
+After an edit, a quick hygiene gate catches the junk edits tend to leave:
+
+```sh
+tarn check app.py     # exit 0 if clean, 1 if issues (--json for details)
+```
+
+`check` flags trailing whitespace, indentation that mixes tabs and spaces, mixed
+line endings, a missing final newline, a BOM, and trailing blank lines — all
+reliable, parser-free checks. It deliberately does **not** balance braces/quotes
+(that needs a real parser and would false-positive on strings and comments).
+
 ```
 $ tarn outline server.py
   3 │ class Handler        (3–9)

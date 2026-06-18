@@ -7,6 +7,7 @@
 //! stays clean (box-drawing only, no escape soup).
 
 use crate::structure::Def;
+use crate::textfile::Issue;
 
 // --- brand palette (truecolor) ----------------------------------------------
 const COPPER: &str = "\x1b[38;2;199;117;46m";
@@ -433,6 +434,58 @@ pub fn find_json(pattern: &str, matches: &[FindMatch]) -> String {
         })
         .collect();
     format!("{{\"pattern\":{},\"matches\":[{}]}}\n", jstr(pattern), items.join(","))
+}
+
+// --- check --------------------------------------------------------------------
+/// Human-readable hygiene report.
+pub fn check_view(path: &str, issues: &[Issue], color: bool) -> String {
+    if issues.is_empty() {
+        return paint(color, &format!("{MINT}"), &format!("✓ {path} — clean")) + "\n";
+    }
+    let mut out = String::new();
+    let head = format!("┌─ check: {path} ─ {} issue(s) ", issues.len());
+    out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(20))));
+    out.push('\n');
+    let gw = issues
+        .iter()
+        .filter_map(|i| i.line)
+        .max()
+        .unwrap_or(1)
+        .to_string()
+        .len()
+        .max(2);
+    for it in issues {
+        let loc = match it.line {
+            Some(n) => paint(color, &format!("{COPPER}{BOLD}"), &format!("{:>w$}", n, w = gw)),
+            None => paint(color, DIM, &format!("{:>w$}", "·", w = gw)),
+        };
+        let sep = paint(color, DIM, "│");
+        let kind = paint(color, DIM, &format!("{}:", it.kind));
+        out.push_str(&format!("{loc} {sep} {kind} {}\n", it.msg));
+    }
+    out.push_str(&paint(color, COPPER, &format!("└{}", "─".repeat(48))));
+    out.push('\n');
+    out
+}
+
+/// Machine-readable hygiene report.
+pub fn check_json(path: &str, issues: &[Issue]) -> String {
+    let items: Vec<String> = issues
+        .iter()
+        .map(|i| {
+            let line = match i.line {
+                Some(n) => n.to_string(),
+                None => "null".to_string(),
+            };
+            format!("{{\"line\":{},\"kind\":\"{}\",\"msg\":{}}}", line, i.kind, jstr(&i.msg))
+        })
+        .collect();
+    format!(
+        "{{\"path\":{},\"clean\":{},\"issues\":[{}]}}\n",
+        jstr(path),
+        issues.is_empty(),
+        items.join(",")
+    )
 }
 
 #[cfg(test)]

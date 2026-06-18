@@ -188,6 +188,64 @@ pub fn apply_ops(content: &str, ops: &[Op]) -> Result<String, String> {
     Ok(join(out, end, fin))
 }
 
+/// A hygiene problem found by `check`.
+pub struct Issue {
+    pub line: Option<usize>,
+    pub kind: &'static str,
+    pub msg: String,
+}
+
+/// Reliable, parser-free file-hygiene checks — exactly the junk an edit tends to
+/// leave behind. No brace/quote balancing (that needs a real parser and would
+/// false-positive on strings and comments).
+pub fn check(content: &str) -> Vec<Issue> {
+    let mut issues = Vec::new();
+
+    if content.starts_with('\u{feff}') {
+        issues.push(Issue { line: None, kind: "bom", msg: "file starts with a UTF-8 BOM".into() });
+    }
+
+    let crlf = content.matches("\r\n").count();
+    let lone_lf = content.matches('\n').count() - crlf;
+    if crlf > 0 && lone_lf > 0 {
+        issues.push(Issue {
+            line: None,
+            kind: "mixed-eol",
+            msg: format!("mixed line endings ({crlf} CRLF, {lone_lf} LF)"),
+        });
+    }
+
+    let lines: Vec<&str> = content.lines().collect();
+    for (idx, line) in lines.iter().enumerate() {
+        let n = idx + 1;
+        if line.ends_with(' ') || line.ends_with('\t') {
+            issues.push(Issue { line: Some(n), kind: "trailing-ws", msg: "trailing whitespace".into() });
+        }
+        let lead: String = line.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+        if lead.contains('\t') && lead.contains(' ') {
+            issues.push(Issue {
+                line: Some(n),
+                kind: "mixed-indent",
+                msg: "indentation mixes tabs and spaces".into(),
+            });
+        }
+    }
+
+    if !content.is_empty() && !content.ends_with('\n') {
+        issues.push(Issue { line: None, kind: "no-final-newline", msg: "no trailing newline".into() });
+    }
+    // Trailing blank lines (a single final newline is normal; extra empties aren't).
+    let trailing_blanks = lines.iter().rev().take_while(|l| l.trim().is_empty()).count();
+    if trailing_blanks > 0 {
+        issues.push(Issue {
+            line: None,
+            kind: "trailing-blank-lines",
+            msg: format!("{trailing_blanks} blank line(s) at end of file"),
+        });
+    }
+    issues
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,5 +352,24 @@ mod tests {
     fn apply_expect_passes() {
         let ops = vec![Op::Expect(2, "beta".to_string()), Op::Replace(2, "BETA".to_string())];
         assert_eq!(apply_ops(DOC, &ops).unwrap(), "alpha\nBETA\ngamma\n");
+    }
+
+    #[test]
+    fn check_clean_file_has_no_issues() {
+        assert!(check("fn main() {\n    ok\n}\n").is_empty());
+    }
+
+    #[test]
+    fn check_flags_real_hygiene_problems() {
+        let kinds: Vec<&str> = check("a  \n\tb\nc").iter().map(|i| i.kind).collect();
+        assert!(kinds.contains(&"trailing-ws")); // line 1
+        assert!(kinds.contains(&"no-final-newline"));
+    }
+
+    #[test]
+    fn check_detects_mixed_indent_and_eol() {
+        let kinds: Vec<&str> = check(" \tindented\r\nplain\n").iter().map(|i| i.kind).collect();
+        assert!(kinds.contains(&"mixed-indent"));
+        assert!(kinds.contains(&"mixed-eol"));
     }
 }
