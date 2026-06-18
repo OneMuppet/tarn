@@ -119,6 +119,20 @@ Line numbers are 1-based and match `show`'s gutter, so an agent reads a number
 off the view and edits exactly that line. Edits never reflow untouched lines and
 always leave a single trailing newline.
 
+Two more flags make the edit commands agent-friendly:
+
+- `--dry-run` computes the edit and previews the diff **without writing** — safe
+  to propose a change and look before committing.
+- `--json` (on `show` and the edits) emits machine-readable output instead of the
+  rendered view, so an agent reasons on structure rather than scraping text:
+
+```sh
+tarn show app.py --around 27 --json
+# {"path":"app.py","total":120,"window":[24,30],"highlight":null,"lines":[{"n":24,"text":"..."}, …]}
+tarn replace app.py 27 'PORT = 9090' --json
+# {"ok":true,"path":"app.py","op":"replace","before":120,"after":120,"dry_run":false}
+```
+
 ## The scriptable side (for AI harnesses & scripts)
 
 These are non-interactive and deterministic. Edits are **surgical**: comments,

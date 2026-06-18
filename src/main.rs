@@ -221,11 +221,13 @@ fn cmd_show(args: &[String]) -> u8 {
     let mut all = false;
     let mut highlight: Option<(usize, usize)> = None;
     let mut color_pref: Option<bool> = None;
+    let mut json = false;
 
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--all" => all = true,
+            "--json" => json = true,
             "--plain" => color_pref = Some(false),
             "--color" => color_pref = Some(true),
             "--lines" => match next_range(args, &mut i) {
@@ -282,57 +284,61 @@ fn cmd_show(args: &[String]) -> u8 {
         Window::Auto
     };
 
-    let color = color_pref.unwrap_or_else(use_color);
-    print!("{}", render::show(&base_name(file), &content, &win, highlight, color));
+    if json {
+        print!("{}", render::show_json(&base_name(file), &content, &win, highlight));
+    } else {
+        let color = color_pref.unwrap_or_else(use_color);
+        print!("{}", render::show(&base_name(file), &content, &win, highlight, color));
+    }
     let _ = io::stdout().flush();
     EXIT_OK
 }
 
-/// `replace <file> <N> <text> [--diff]`
+/// `replace <file> <N> <text> [--diff|--json] [--dry-run]`
 fn cmd_replace(args: &[String]) -> u8 {
-    let (diff, color, rest) = parse_edit_flags(args);
-    let (file, n, text) = match (rest.first(), rest.get(1), rest.get(2)) {
+    let flags = parse_edit_flags(args);
+    let (file, n, text) = match (flags.rest.first(), flags.rest.get(1), flags.rest.get(2)) {
         (Some(f), Some(n), Some(t)) => match n.parse::<usize>() {
             Ok(n) => (f.as_str(), n, t.as_str()),
-            Err(_) => return usage_err("replace <file> <N> <text> [--diff]"),
+            Err(_) => return usage_err("replace <file> <N> <text> [--diff|--json] [--dry-run]"),
         },
-        _ => return usage_err("replace <file> <N> <text> [--diff]"),
+        _ => return usage_err("replace <file> <N> <text> [--diff|--json] [--dry-run]"),
     };
-    apply_edit(file, diff, color, |c| textfile::replace(c, n, text))
+    apply_edit(file, "replace", &flags, |c| textfile::replace(c, n, text))
 }
 
-/// `insert <file> <after-N> <text> [--diff]`  (after-N = 0 inserts at the top)
+/// `insert <file> <after-N> <text> [...]`  (after-N = 0 inserts at the top)
 fn cmd_insert(args: &[String]) -> u8 {
-    let (diff, color, rest) = parse_edit_flags(args);
-    let (file, after, text) = match (rest.first(), rest.get(1), rest.get(2)) {
+    let flags = parse_edit_flags(args);
+    let (file, after, text) = match (flags.rest.first(), flags.rest.get(1), flags.rest.get(2)) {
         (Some(f), Some(n), Some(t)) => match n.parse::<usize>() {
             Ok(n) => (f.as_str(), n, t.as_str()),
-            Err(_) => return usage_err("insert <file> <after-N> <text> [--diff]"),
+            Err(_) => return usage_err("insert <file> <after-N> <text> [--diff|--json] [--dry-run]"),
         },
-        _ => return usage_err("insert <file> <after-N> <text> [--diff]"),
+        _ => return usage_err("insert <file> <after-N> <text> [--diff|--json] [--dry-run]"),
     };
-    apply_edit(file, diff, color, |c| textfile::insert(c, after, text))
+    apply_edit(file, "insert", &flags, |c| textfile::insert(c, after, text))
 }
 
-/// `delete <file> <A-B> [--diff]`  (alias: del)
+/// `delete <file> <A-B> [...]`  (alias: del)
 fn cmd_delete(args: &[String]) -> u8 {
-    let (diff, color, rest) = parse_edit_flags(args);
-    let (file, range) = match (rest.first(), rest.get(1)) {
+    let flags = parse_edit_flags(args);
+    let (file, range) = match (flags.rest.first(), flags.rest.get(1)) {
         (Some(f), Some(r)) => match parse_range(r) {
             Some(r) => (f.as_str(), r),
-            None => return usage_err("delete <file> <A-B> [--diff]"),
+            None => return usage_err("delete <file> <A-B> [--diff|--json] [--dry-run]"),
         },
-        _ => return usage_err("delete <file> <A-B> [--diff]"),
+        _ => return usage_err("delete <file> <A-B> [--diff|--json] [--dry-run]"),
     };
-    apply_edit(file, diff, color, |c| textfile::delete(c, range.0, range.1))
+    apply_edit(file, "delete", &flags, |c| textfile::delete(c, range.0, range.1))
 }
 
-/// `write <file> [--diff]` — replace the whole file with stdin.
+/// `write <file> [...]` — replace the whole file with stdin.
 fn cmd_write(args: &[String]) -> u8 {
-    let (diff, color, rest) = parse_edit_flags(args);
-    let file = match rest.first() {
+    let flags = parse_edit_flags(args);
+    let file = match flags.rest.first() {
         Some(f) => f.as_str(),
-        None => return usage_err("write <file> [--diff]   (content on stdin)"),
+        None => return usage_err("write <file> [--diff|--json] [--dry-run]   (content on stdin)"),
     };
     let mut input = String::new();
     if io::stdin().read_to_string(&mut input).is_err() {
@@ -340,31 +346,34 @@ fn cmd_write(args: &[String]) -> u8 {
         return EXIT_USAGE;
     }
     let new = textfile::normalize(&input);
-    let old = read_or_empty(file);
-    match fs::write(file, &new) {
-        Ok(()) => {
-            if diff {
-                print!("{}", render::diff(&old, &new, color));
-            }
-            EXIT_OK
-        }
-        Err(e) => {
-            eprintln!("tarn: cannot write {file}: {e}");
-            EXIT_USAGE
-        }
-    }
+    apply_edit(file, "write", &flags, move |_| Ok(new.clone()))
 }
 
-/// Run a line edit, write it back, and optionally print the diff.
-fn apply_edit<F>(file: &str, diff: bool, color: bool, edit: F) -> u8
+/// Flags shared by every editing command.
+struct EditFlags {
+    diff: bool,
+    json: bool,
+    dry_run: bool,
+    color: bool,
+    rest: Vec<String>,
+}
+
+/// Compute an edit, optionally write it (unless `--dry-run`), and report the
+/// result as a diff (default / `--diff`) or as JSON (`--json`).
+fn apply_edit<F>(file: &str, op: &str, flags: &EditFlags, edit: F) -> u8
 where
     F: FnOnce(&str) -> Result<String, String>,
 {
-    let old = match fs::read_to_string(file) {
-        Ok(c) => c,
-        Err(_) => {
-            eprintln!("tarn: cannot read {file}");
-            return EXIT_NOT_FOUND;
+    // `write` may create the file; the line ops require it to exist.
+    let old = if op == "write" {
+        read_or_empty(file)
+    } else {
+        match fs::read_to_string(file) {
+            Ok(c) => c,
+            Err(_) => {
+                eprintln!("tarn: cannot read {file}");
+                return EXIT_NOT_FOUND;
+            }
         }
     };
     let new = match edit(&old) {
@@ -374,19 +383,25 @@ where
             return EXIT_USAGE;
         }
     };
-    match fs::write(file, &new) {
-        Ok(()) => {
-            if diff {
-                print!("{}", render::diff(&old, &new, color));
-                let _ = io::stdout().flush();
-            }
-            EXIT_OK
-        }
-        Err(e) => {
+
+    if !flags.dry_run {
+        if let Err(e) = fs::write(file, &new) {
             eprintln!("tarn: cannot write {file}: {e}");
-            EXIT_USAGE
+            return EXIT_USAGE;
         }
     }
+
+    if flags.json {
+        print!(
+            "{}",
+            render::edit_json(file, op, old.lines().count(), new.lines().count(), flags.dry_run)
+        );
+    } else if flags.diff || flags.dry_run {
+        // A dry-run with no explicit output still previews via diff.
+        print!("{}", render::diff(&old, &new, flags.color));
+    }
+    let _ = io::stdout().flush();
+    EXIT_OK
 }
 
 // ---- helpers ---------------------------------------------------------------
@@ -404,24 +419,34 @@ fn base_name(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
-/// Pull `--diff`, `--color`, `--plain` out of an edit command's args.
-/// Returns (diff?, color?, remaining args). Color: `--plain` < `--color` <
-/// auto-detect (TTY + NO_COLOR).
-fn parse_edit_flags(args: &[String]) -> (bool, bool, Vec<String>) {
-    let diff = args.iter().any(|a| a == "--diff");
-    let color = if args.iter().any(|a| a == "--plain") {
+/// Pull the shared editing flags out of an edit command's args. Color
+/// precedence: `--plain` < `--color` < auto-detect (TTY + NO_COLOR).
+fn parse_edit_flags(args: &[String]) -> EditFlags {
+    let has = |name: &str| args.iter().any(|a| a == name);
+    let color = if has("--plain") {
         false
-    } else if args.iter().any(|a| a == "--color") {
+    } else if has("--color") {
         true
     } else {
         use_color()
     };
     let rest: Vec<String> = args
         .iter()
-        .filter(|a| !matches!(a.as_str(), "--diff" | "--color" | "--plain"))
+        .filter(|a| {
+            !matches!(
+                a.as_str(),
+                "--diff" | "--json" | "--dry-run" | "--color" | "--plain"
+            )
+        })
         .cloned()
         .collect();
-    (diff, color, rest)
+    EditFlags {
+        diff: has("--diff"),
+        json: has("--json"),
+        dry_run: has("--dry-run"),
+        color,
+        rest,
+    }
 }
 
 /// Parse "A-B" / "A:B" / "A" into an inclusive (a, b).
@@ -475,11 +500,12 @@ USAGE:
   documents (non-interactive — for scripts & AI harnesses):
     tarn show    <file>         editor-style snapshot to stdout
         --lines A-B | --around N [--context K] | --head [K] | --tail [K] | --all
-        --highlight A-B | --plain | --color
-    tarn replace <file> <N> <text>        replace line N           [--diff]
-    tarn insert  <file> <after-N> <text>  insert after line N (0=top)[--diff]
-    tarn delete  <file> <A-B>             delete line range  (del)  [--diff]
-    tarn write   <file>                   replace file from stdin   [--diff]
+        --highlight A-B | --json | --plain | --color
+    tarn replace <file> <N> <text>        replace line N
+    tarn insert  <file> <after-N> <text>  insert after line N (0=top)
+    tarn delete  <file> <A-B>             delete line range  (alias: del)
+    tarn write   <file>                   replace file from stdin
+        edit flags:  --diff (preview) | --json | --dry-run (don't write)
 
   .env / key=value:
     tarn get   <file> <KEY>     print KEY's value (exit 1 if missing)

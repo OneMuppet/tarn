@@ -256,6 +256,73 @@ pub fn diff(old: &str, new: &str, color: bool) -> String {
     out
 }
 
+// --- JSON (hand-rolled; no serde, keeping the zero-dependency rule) ----------
+fn jesc(s: &str) -> String {
+    let mut o = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            '\n' => o.push_str("\\n"),
+            '\r' => o.push_str("\\r"),
+            '\t' => o.push_str("\\t"),
+            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o
+}
+
+/// A JSON string literal (quoted + escaped).
+pub fn jstr(s: &str) -> String {
+    format!("\"{}\"", jesc(s))
+}
+
+/// Machine-readable `show`: path, totals, window, highlight, and windowed lines.
+pub fn show_json(
+    name: &str,
+    content: &str,
+    win: &Window,
+    highlight: Option<(usize, usize)>,
+) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let total = lines.len();
+    let (start, end) = win.resolve(total);
+    let hi = match highlight {
+        Some((a, b)) => format!("[{a},{b}]"),
+        None => "null".to_string(),
+    };
+    let mut items = Vec::new();
+    if start <= end {
+        for ln in start..=end {
+            if ln >= 1 && ln <= total {
+                items.push(format!("{{\"n\":{},\"text\":{}}}", ln, jstr(lines[ln - 1])));
+            }
+        }
+    }
+    format!(
+        "{{\"path\":{},\"total\":{},\"window\":[{},{}],\"highlight\":{},\"lines\":[{}]}}\n",
+        jstr(name),
+        total,
+        start,
+        end,
+        hi,
+        items.join(",")
+    )
+}
+
+/// Machine-readable result of an edit.
+pub fn edit_json(path: &str, op: &str, before: usize, after: usize, dry_run: bool) -> String {
+    format!(
+        "{{\"ok\":true,\"path\":{},\"op\":\"{}\",\"before\":{},\"after\":{},\"dry_run\":{}}}\n",
+        jstr(path),
+        op,
+        before,
+        after,
+        dry_run
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,5 +372,30 @@ mod tests {
     #[test]
     fn diff_no_change() {
         assert!(diff("a\n", "a\n", false).contains("no changes"));
+    }
+
+    #[test]
+    fn show_json_has_window_and_lines() {
+        let j = show_json("f.txt", "a\nb\nc\n", &Window::Range(2, 3), Some((2, 2)));
+        assert!(j.contains("\"path\":\"f.txt\""));
+        assert!(j.contains("\"total\":3"));
+        assert!(j.contains("\"window\":[2,3]"));
+        assert!(j.contains("\"highlight\":[2,2]"));
+        assert!(j.contains("{\"n\":2,\"text\":\"b\"}"));
+        assert!(!j.contains("\"text\":\"a\"")); // outside window
+    }
+
+    #[test]
+    fn json_escapes_quotes_and_tabs() {
+        assert_eq!(jstr("a\"b\tc"), "\"a\\\"b\\tc\"");
+    }
+
+    #[test]
+    fn edit_json_shape() {
+        let j = edit_json("f.txt", "replace", 5, 5, true);
+        assert!(j.contains("\"ok\":true"));
+        assert!(j.contains("\"op\":\"replace\""));
+        assert!(j.contains("\"before\":5"));
+        assert!(j.contains("\"dry_run\":true"));
     }
 }
