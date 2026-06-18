@@ -290,7 +290,7 @@ fn cmd_show(args: &[String]) -> u8 {
 
 /// `replace <file> <N> <text> [--diff]`
 fn cmd_replace(args: &[String]) -> u8 {
-    let (diff, rest) = split_diff(args);
+    let (diff, color, rest) = parse_edit_flags(args);
     let (file, n, text) = match (rest.first(), rest.get(1), rest.get(2)) {
         (Some(f), Some(n), Some(t)) => match n.parse::<usize>() {
             Ok(n) => (f.as_str(), n, t.as_str()),
@@ -298,12 +298,12 @@ fn cmd_replace(args: &[String]) -> u8 {
         },
         _ => return usage_err("replace <file> <N> <text> [--diff]"),
     };
-    apply_edit(file, diff, |c| textfile::replace(c, n, text))
+    apply_edit(file, diff, color, |c| textfile::replace(c, n, text))
 }
 
 /// `insert <file> <after-N> <text> [--diff]`  (after-N = 0 inserts at the top)
 fn cmd_insert(args: &[String]) -> u8 {
-    let (diff, rest) = split_diff(args);
+    let (diff, color, rest) = parse_edit_flags(args);
     let (file, after, text) = match (rest.first(), rest.get(1), rest.get(2)) {
         (Some(f), Some(n), Some(t)) => match n.parse::<usize>() {
             Ok(n) => (f.as_str(), n, t.as_str()),
@@ -311,12 +311,12 @@ fn cmd_insert(args: &[String]) -> u8 {
         },
         _ => return usage_err("insert <file> <after-N> <text> [--diff]"),
     };
-    apply_edit(file, diff, |c| textfile::insert(c, after, text))
+    apply_edit(file, diff, color, |c| textfile::insert(c, after, text))
 }
 
 /// `delete <file> <A-B> [--diff]`  (alias: del)
 fn cmd_delete(args: &[String]) -> u8 {
-    let (diff, rest) = split_diff(args);
+    let (diff, color, rest) = parse_edit_flags(args);
     let (file, range) = match (rest.first(), rest.get(1)) {
         (Some(f), Some(r)) => match parse_range(r) {
             Some(r) => (f.as_str(), r),
@@ -324,12 +324,12 @@ fn cmd_delete(args: &[String]) -> u8 {
         },
         _ => return usage_err("delete <file> <A-B> [--diff]"),
     };
-    apply_edit(file, diff, |c| textfile::delete(c, range.0, range.1))
+    apply_edit(file, diff, color, |c| textfile::delete(c, range.0, range.1))
 }
 
 /// `write <file> [--diff]` — replace the whole file with stdin.
 fn cmd_write(args: &[String]) -> u8 {
-    let (diff, rest) = split_diff(args);
+    let (diff, color, rest) = parse_edit_flags(args);
     let file = match rest.first() {
         Some(f) => f.as_str(),
         None => return usage_err("write <file> [--diff]   (content on stdin)"),
@@ -344,7 +344,7 @@ fn cmd_write(args: &[String]) -> u8 {
     match fs::write(file, &new) {
         Ok(()) => {
             if diff {
-                print!("{}", render::diff(&old, &new, use_color()));
+                print!("{}", render::diff(&old, &new, color));
             }
             EXIT_OK
         }
@@ -356,7 +356,7 @@ fn cmd_write(args: &[String]) -> u8 {
 }
 
 /// Run a line edit, write it back, and optionally print the diff.
-fn apply_edit<F>(file: &str, diff: bool, edit: F) -> u8
+fn apply_edit<F>(file: &str, diff: bool, color: bool, edit: F) -> u8
 where
     F: FnOnce(&str) -> Result<String, String>,
 {
@@ -377,7 +377,7 @@ where
     match fs::write(file, &new) {
         Ok(()) => {
             if diff {
-                print!("{}", render::diff(&old, &new, use_color()));
+                print!("{}", render::diff(&old, &new, color));
                 let _ = io::stdout().flush();
             }
             EXIT_OK
@@ -404,11 +404,24 @@ fn base_name(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
-/// Pull out a `--diff` flag anywhere in the args; return (diff?, remaining args).
-fn split_diff(args: &[String]) -> (bool, Vec<String>) {
+/// Pull `--diff`, `--color`, `--plain` out of an edit command's args.
+/// Returns (diff?, color?, remaining args). Color: `--plain` < `--color` <
+/// auto-detect (TTY + NO_COLOR).
+fn parse_edit_flags(args: &[String]) -> (bool, bool, Vec<String>) {
     let diff = args.iter().any(|a| a == "--diff");
-    let rest: Vec<String> = args.iter().filter(|a| *a != "--diff").cloned().collect();
-    (diff, rest)
+    let color = if args.iter().any(|a| a == "--plain") {
+        false
+    } else if args.iter().any(|a| a == "--color") {
+        true
+    } else {
+        use_color()
+    };
+    let rest: Vec<String> = args
+        .iter()
+        .filter(|a| !matches!(a.as_str(), "--diff" | "--color" | "--plain"))
+        .cloned()
+        .collect();
+    (diff, color, rest)
 }
 
 /// Parse "A-B" / "A:B" / "A" into an inclusive (a, b).
