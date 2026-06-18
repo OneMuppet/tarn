@@ -7,6 +7,7 @@
 
 mod editor;
 mod envfile;
+mod json;
 mod render;
 mod structure;
 mod terminal;
@@ -66,6 +67,7 @@ fn run(args: &[String]) -> u8 {
         "write" => cmd_write(&args[1..]),
         "apply" => cmd_apply(&args[1..]),
         "rename" => cmd_rename(&args[1..]),
+        "json" => cmd_json(&args[1..]),
         // Anything else is treated as a filename to open.
         _ => open_file(first),
     }
@@ -411,6 +413,66 @@ fn cmd_rename(args: &[String]) -> u8 {
     }
     let _ = io::stdout().flush();
     EXIT_OK
+}
+
+/// `json get|set <file> <path> [value]` — surgical, format-preserving JSON.
+fn cmd_json(args: &[String]) -> u8 {
+    match args.first().map(String::as_str) {
+        Some("get") => json_get(&args[1..]),
+        Some("set") => json_set(&args[1..]),
+        _ => usage_err("json get <file> <path>   |   json set <file> <path> <value>"),
+    }
+}
+
+fn json_get(args: &[String]) -> u8 {
+    let (file, path) = match (args.first(), args.get(1)) {
+        (Some(f), Some(p)) => (f.as_str(), p.as_str()),
+        _ => return usage_err("json get <file> <path>"),
+    };
+    let content = match fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
+    match json::get(&content, path) {
+        Ok(Some(v)) => {
+            println!("{v}");
+            EXIT_OK
+        }
+        Ok(None) => EXIT_NOT_FOUND, // path not present
+        Err(e) => {
+            eprintln!("tarn: invalid JSON in {file}: {e}");
+            EXIT_USAGE
+        }
+    }
+}
+
+fn json_set(args: &[String]) -> u8 {
+    let flags = parse_edit_flags(args);
+    let (file, path, value) = match (flags.rest.first(), flags.rest.get(1), flags.rest.get(2)) {
+        (Some(f), Some(p), Some(v)) => (f.as_str(), p.as_str(), v.as_str()),
+        _ => return usage_err("json set <file> <path> <value> [--dry-run|--diff|--json]"),
+    };
+    let old = match fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
+    match json::set(&old, path, value) {
+        Ok(Some(new)) => commit(file, "json set", &flags, &old, &new),
+        Ok(None) => {
+            eprintln!("tarn: path not found: {path}");
+            EXIT_NOT_FOUND
+        }
+        Err(e) => {
+            eprintln!("tarn: invalid JSON in {file}: {e}");
+            EXIT_USAGE
+        }
+    }
 }
 
 /// `check <file> [--json] [--plain|--color]` — fast file-hygiene gate.
@@ -990,6 +1052,8 @@ USAGE:
     tarn apply   <file>                   batch ops from stdin, atomically
     tarn rename  <path> <old> <new>       whole-word rename in a file/dir
         --substring (match anywhere) | --dry-run (preview)
+    tarn json get <file> <path>           read a JSON value by path (a.b.0.c)
+    tarn json set <file> <path> <value>   set it, preserving file formatting
         edit flags:  --diff (preview) | --json | --dry-run (don't write)
         --expect <text>  guard: fail (exit 3) unless the target matches
 

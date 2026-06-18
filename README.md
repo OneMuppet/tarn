@@ -224,6 +224,25 @@ tarn rename config.ini old new --substring   # match anywhere, not just whole wo
 
 Exit 1 if there were no occurrences. `--json` reports `{from,to,word,total,files:[…]}`.
 
+### Edit JSON config by path (format-preserving)
+
+Agents edit config constantly and usually clobber it — a full reparse/reserialize
+reorders keys and reflows the file. `tarn json` instead edits **surgically**: it
+locates just the target value's byte span and splices it, leaving every other
+byte (whitespace, key order, layout) identical.
+
+```sh
+tarn json get config.json server.port        # 8000   (strings come back decoded)
+tarn json get config.json tags.0             # array/object indices work: a.b.0.c
+tarn json set config.json server.port 9090   # number stays a number
+tarn json set config.json name prod          # a bare word is auto-quoted -> "prod"
+tarn json set config.json tags '["x","y"]' --diff   # valid JSON is used verbatim
+```
+
+`get` exits 1 if the path is absent; `set` never creates paths (exit 1 if absent)
+and takes `--dry-run`/`--diff`. It's hand-rolled, zero-dep, and JSON-only (a key
+that literally contains `.` isn't addressable).
+
 ## The scriptable side (for AI harnesses & scripts)
 
 These are non-interactive and deterministic. Edits are **surgical**: comments,
