@@ -13,6 +13,8 @@ DIMC  = "#7a4a22"   # dim copper (border)
 MINT  = "#7fd1b0"   # mascot eyes / accents
 TEXT  = "#9fb0c0"   # muted foreground
 
+GRID = 24           # terminal cell pitch — bg grid + wordmark share it
+
 def step(p):
     """Map 0..1 to a discrete tarnish color."""
     i = int(p * len(TARNISH))
@@ -40,11 +42,11 @@ def banner():
     # solid terminal background
     out.append(rect(0, 0, W, H, INK))
 
-    # faint character-cell grid (texture, not noise)
-    grid = ['<g stroke="#ffffff" stroke-opacity="0.022" stroke-width="1">']
-    for gx in range(0, W, 24):
+    # faint character-cell grid (texture, not noise) — the wordmark binds to it
+    grid = ['<g stroke="#ffffff" stroke-opacity="0.04" stroke-width="1">']
+    for gx in range(0, W, GRID):
         grid.append(f'<line x1="{gx}" y1="0" x2="{gx}" y2="{H}"/>')
-    for gy in range(0, H, 24):
+    for gy in range(0, H, GRID):
         grid.append(f'<line x1="0" y1="{gy}" x2="{W}" y2="{gy}"/>')
     grid.append('</g>')
     out.append("".join(grid))
@@ -60,12 +62,14 @@ def banner():
     out.append(f'<text x="172" y="19" font-family="{mono}" font-size="15" '
                f'letter-spacing="2" fill="{DIMC}">{esc(title.strip())}</text>')
 
-    # --- wordmark "tarn" as discrete pixel cells --------------------------
+    # --- wordmark "tarn" as discrete pixel cells, bound to the bg grid ----
+    # Cell pitch == background grid pitch (GRID), and the origin sits on grid
+    # lines, so every letter-pixel fills exactly one grid square. Glyphs are
+    # separated by exactly one empty grid column.
     word = "tarn"
-    C = 22                 # cell size
-    GAP = 1                # empty columns between glyphs
-    X0, Y0 = 70, 72
-    # total grid columns for quantizing color left->right
+    C = GRID               # cell pitch == background grid (24)
+    GAP = 1                # one empty grid column between glyphs
+    X0, Y0 = 3 * GRID, 3 * GRID   # grid-aligned origin (72, 72)
     total_cols = sum(5 for _ in word) + GAP * (len(word) - 1)
     col_cursor = 0
     cells = []
@@ -78,14 +82,10 @@ def banner():
                     color = step(wc / (total_cols - 1))
                     x = X0 + wc * C
                     y = Y0 + r * C
-                    # tiny inset so cells read as separate blocks, like a grid
-                    cells.append(rect(x, y, C - 2, C - 2, color))
+                    # 1px inset on each side: the gaps land on the grid lines
+                    cells.append(rect(x + 1, y + 1, C - 2, C - 2, color))
         col_cursor += 5 + GAP
     out.append("".join(cells))
-
-    # block cursor cell, one column after the word, full glyph height
-    cur_x = X0 + total_cols * C + C
-    out.append(rect(cur_x, Y0, C - 2, 7 * C - 2, "#2f5d4f"))
 
     # --- inverse-video status bar (like the real editor) ------------------
     sb_y = H - 50
