@@ -379,33 +379,52 @@ fn cmd_find(args: &[String]) -> u8 {
         i += 1;
     }
 
-    let (file, pattern) = match (file, pattern) {
+    let (path, pattern) = match (file, pattern) {
         (Some(f), Some(p)) => (f, p),
-        _ => return usage_err("find <file> <pattern> [-i] [--enclosing] [--json]"),
+        _ => return usage_err("find <path> <pattern> [-i] [--enclosing] [--json]   (-- to search a pattern starting with -)"),
     };
-    let content = match fs::read_to_string(file) {
-        Ok(c) => c,
-        Err(_) => {
-            eprintln!("tarn: cannot read {file}");
-            return EXIT_NOT_FOUND;
-        }
-    };
+
+    let files = collect_files(path);
+    if files.is_empty() {
+        eprintln!("tarn: no readable files at {path}");
+        return EXIT_NOT_FOUND;
+    }
+    let multi = files.len() > 1;
 
     let needle = if ignore_case { pattern.to_lowercase() } else { pattern.to_string() };
     let mut matches: Vec<render::FindMatch> = Vec::new();
     let mut total = 0usize;
-    for (idx, line) in content.lines().enumerate() {
-        let hay = if ignore_case { line.to_lowercase() } else { line.to_string() };
-        if hay.contains(&needle) {
-            total += 1;
-            if matches.len() < limit {
-                let scope = if enclosing {
-                    structure::qualified(file, &content, idx + 1)
-                } else {
-                    None
-                };
-                matches.push(render::FindMatch { line: idx + 1, text: line.to_string(), scope });
+    let mut hit_files = 0usize;
+    for f in &files {
+        let fname = f.to_string_lossy().to_string();
+        // Non-UTF-8 / binary files just fail to read and are skipped.
+        let content = match fs::read_to_string(f) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let mut file_hit = false;
+        for (idx, line) in content.lines().enumerate() {
+            let hay = if ignore_case { line.to_lowercase() } else { line.to_string() };
+            if hay.contains(&needle) {
+                total += 1;
+                file_hit = true;
+                if matches.len() < limit {
+                    let scope = if enclosing {
+                        structure::qualified(&fname, &content, idx + 1)
+                    } else {
+                        None
+                    };
+                    matches.push(render::FindMatch {
+                        file: fname.clone(),
+                        line: idx + 1,
+                        text: line.to_string(),
+                        scope,
+                    });
+                }
             }
+        }
+        if file_hit {
+            hit_files += 1;
         }
     }
 
@@ -413,18 +432,53 @@ fn cmd_find(args: &[String]) -> u8 {
         return EXIT_NOT_FOUND;
     }
 
-    let name = base_name(file);
     if json {
-        print!("{}", render::find_json(&name, pattern, &matches));
+        print!("{}", render::find_json(pattern, &matches));
     } else {
         let color = color_pref.unwrap_or_else(use_color);
-        print!("{}", render::find_view(&name, pattern, &matches, color));
+        let shown_files = if multi { hit_files } else { 1 };
+        print!("{}", render::find_view(pattern, &matches, shown_files, color));
         if total > matches.len() {
             println!("… {} more match(es) (raise --limit)", total - matches.len());
         }
     }
     let _ = io::stdout().flush();
     EXIT_OK
+}
+
+/// Files to search: a single file as-is, or every readable file under a
+/// directory (skipping hidden entries and common build/vendor dirs).
+fn collect_files(path: &str) -> Vec<PathBuf> {
+    let p = PathBuf::from(path);
+    if p.is_file() {
+        return vec![p];
+    }
+    let mut out = Vec::new();
+    walk(&p, &mut out);
+    out
+}
+
+fn walk(dir: &PathBuf, out: &mut Vec<PathBuf>) {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    paths.sort(); // deterministic output
+    for path in paths {
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        if name.starts_with('.') {
+            continue; // .git, .venv, dotfiles
+        }
+        if path.is_dir() {
+            if matches!(name.as_str(), "target" | "node_modules" | "dist" | "build") {
+                continue;
+            }
+            walk(&path, out);
+        } else {
+            out.push(path);
+        }
+    }
 }
 
 /// `replace <file> <N> <text> [--diff|--json] [--dry-run]`
@@ -760,8 +814,9 @@ USAGE:
 
   navigate (structure without reading the whole file):
     tarn outline <file>         map of defs/classes/headings  [--json]
-    tarn find    <file> <text>  search; each hit + line number [--json]
-        -i (ignore case) | --enclosing (tag hits with their def) | --limit N
+    tarn find    <path> <text>  search a file OR directory; hits with file+line
+        -i (ignore case) | --enclosing (tag hits w/ their def) | --limit N | --json
+        --  <text>  search a pattern that starts with a dash
 
   documents (non-interactive — for scripts & AI harnesses):
     tarn show    <file>         editor-style snapshot to stdout

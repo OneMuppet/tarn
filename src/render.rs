@@ -369,21 +369,37 @@ pub fn outline_json(path: &str, defs: &[Def]) -> String {
 }
 
 // --- find ---------------------------------------------------------------------
-/// One search hit, optionally tagged with its enclosing scope (name, start, end).
+/// One search hit: its file, line, text, and optional enclosing scope.
 pub struct FindMatch {
+    pub file: String,
     pub line: usize,
     pub text: String,
     pub scope: Option<(String, usize, usize)>,
 }
 
-/// Human-readable search results.
-pub fn find_view(path: &str, pattern: &str, matches: &[FindMatch], color: bool) -> String {
+/// Human-readable search results. When the hits span more than one file, they're
+/// grouped under per-file headers; a single file stays flat.
+pub fn find_view(pattern: &str, matches: &[FindMatch], files: usize, color: bool) -> String {
     let mut out = String::new();
-    let head = format!("┌─ find {} in {path} ─ {} match{} ", jstr(pattern), matches.len(), if matches.len() == 1 { "" } else { "es" });
+    let scope_note = if files > 1 { format!(" in {files} files") } else { String::new() };
+    let head = format!(
+        "┌─ find {} ─ {} match{}{scope_note} ",
+        jstr(pattern),
+        matches.len(),
+        if matches.len() == 1 { "" } else { "es" }
+    );
     out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(20))));
     out.push('\n');
+
     let gw = matches.iter().map(|m| m.line).max().unwrap_or(1).to_string().len().max(2);
+    let multi = files > 1;
+    let mut cur = "";
     for m in matches {
+        if multi && m.file != cur {
+            out.push_str(&paint(color, &format!("{COPPER}{BOLD}"), &m.file));
+            out.push('\n');
+            cur = &m.file;
+        }
         let num = paint(color, &format!("{COPPER}{BOLD}"), &format!("{:>w$}", m.line, w = gw));
         let sep = paint(color, DIM, "│");
         let mut line = format!("{num} {sep} {}", m.text.trim_end());
@@ -399,7 +415,7 @@ pub fn find_view(path: &str, pattern: &str, matches: &[FindMatch], color: bool) 
 }
 
 /// Machine-readable search results.
-pub fn find_json(path: &str, pattern: &str, matches: &[FindMatch]) -> String {
+pub fn find_json(pattern: &str, matches: &[FindMatch]) -> String {
     let items: Vec<String> = matches
         .iter()
         .map(|m| {
@@ -407,15 +423,16 @@ pub fn find_json(path: &str, pattern: &str, matches: &[FindMatch]) -> String {
                 Some((name, a, b)) => format!(",\"in\":{},\"range\":[{},{}]", jstr(name), a, b),
                 None => String::new(),
             };
-            format!("{{\"line\":{},\"text\":{}{}}}", m.line, jstr(m.text.trim_end()), scope)
+            format!(
+                "{{\"file\":{},\"line\":{},\"text\":{}{}}}",
+                jstr(&m.file),
+                m.line,
+                jstr(m.text.trim_end()),
+                scope
+            )
         })
         .collect();
-    format!(
-        "{{\"path\":{},\"pattern\":{},\"matches\":[{}]}}\n",
-        jstr(path),
-        jstr(pattern),
-        items.join(",")
-    )
+    format!("{{\"pattern\":{},\"matches\":[{}]}}\n", jstr(pattern), items.join(","))
 }
 
 #[cfg(test)]

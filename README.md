@@ -77,9 +77,16 @@ two give you structure cheaply — see the shape, then jump to the part you need
 ```sh
 tarn outline app.py            # a map of defs / classes / headings + line ranges
 tarn find   app.py 'send_'     # literal search; each hit with its line number
+tarn find   src/   'send_'     # search a whole DIRECTORY (recursive), grouped by file
 tarn find   app.py 'send_' --enclosing   # ...and the definition that contains it
 tarn find   app.py 'send_' --json -i --limit 50
+tarn find   app.py -- '--flag' # use -- to search a pattern that starts with a dash
 ```
+
+`find` takes a file *or a directory* — pointed at a dir it recurses (skipping
+hidden entries and `target`/`node_modules`/`dist`/`build`, and non-text files),
+grouping hits by file. `--json` hits carry their `file`, so results chain
+straight into `show`/edits across the repo.
 
 ```
 $ tarn outline server.py
