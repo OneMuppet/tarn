@@ -39,7 +39,7 @@ def rect(x, y, w, h, fill, extra=""):
 def banner():
     W, H = 1200, 320
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
-           f'viewBox="0 0 {W} {H}" role="img" aria-label="tarn — a tiny, understandable terminal editor">']
+           f'viewBox="0 0 {W} {H}" role="img" aria-label="tarn — the editor your agent wishes it had">']
     # solid terminal background
     out.append(rect(0, 0, W, H, INK))
 
@@ -58,7 +58,7 @@ def banner():
                f'stroke="{DIMC}" stroke-width="2"/>')
     mono = "'SF Mono','JetBrains Mono',Menlo,Consolas,monospace"
     # title sits on the top border, breaking the line like ┤ tarn ├
-    title = " tarn — a tiny terminal editor "
+    title = " tarn — by an agent, for agents "
     out.append(rect(150, 4, 360, 18, INK))  # gap so the line appears broken
     out.append(f'<text x="172" y="19" font-family="{mono}" font-size="15" '
                f'letter-spacing="2" fill="{DIMC}">{esc(title.strip())}</text>')
@@ -98,7 +98,7 @@ def banner():
     out.append(rect(bx + 2, sb_y, bw - 4, sb_h, "#c7752e"))      # copper bar
     out.append(f'<text x="28" y="{sb_y + 18}" font-family="{mono}" font-size="15" '
                f'letter-spacing="1" font-weight="700" fill="{INK}">'
-               f'tarn*  $ a tiny, understandable terminal editor</text>')
+               f'tarn*  $ the editor your agent wishes it had</text>')
     out.append(f'<text x="{W - 28}" y="{sb_y + 18}" text-anchor="end" '
                f'font-family="{mono}" font-size="15" letter-spacing="1" '
                f'font-weight="700" fill="{INK}">^S save   ^Q quit   Ln 1, Col 1</text>')

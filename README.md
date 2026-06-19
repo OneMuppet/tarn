@@ -6,13 +6,13 @@
 
 ```
   ████▓▓▒▒░░   t a r n   ░░▒▒▓▓████
-               a tiny, understandable
-               terminal editor
+        the editor your agent wishes it had
+            ·  by an agent, for agents  ·
 ```
 
-**tarn** is a tiny terminal text editor you can actually understand — no modes, no
-manual, the help is always on screen. It's also a fast, **structural command-line
-toolkit built for AI agents**: map a codebase (`outline`), search it with the
+**tarn is the editor your agent wishes it had.** A tiny terminal text editor you can
+actually understand — no modes, no manual, the help is always on screen — and a
+fast, **structural command-line toolkit built for AI agents**: map a codebase (`outline`), search it with the
 enclosing definition of every hit (`find`), read one function by name (`peek`),
 edit it surgically with guards (`replace --expect`, `apply`), refactor
 (`rename`), patch config without reflowing it (`json`), and check your work
