@@ -234,6 +234,21 @@ Ops: `expect <N> <text>`, `replace <N> <text>`, `insert <after-N> <text>`,
 `delete <A-B>`. Blank lines and `#` comments are ignored. Combine with
 `--dry-run`/`--json` like any edit.
 
+**Across files, too.** A `file <path>` line switches the target, so one batch can
+edit many files — and it stays **all-or-nothing across all of them**: every file's
+ops are validated and computed first, and nothing is written unless they all
+succeed (a failed `expect` anywhere aborts the whole transaction, exit 3).
+
+```sh
+tarn apply --diff <<'OPS'
+file src/config.rs
+expect 12 const PORT: u16 = 8000;
+replace 12 const PORT: u16 = 9090;
+file src/main.rs
+insert 0 //! updated port
+OPS
+```
+
 ### Rename across a file or directory
 
 `tarn rename` does a **whole-word** rename by default, so `port` never touches

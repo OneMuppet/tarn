@@ -1046,48 +1046,109 @@ fn cmd_write(args: &[String]) -> u8 {
     apply_edit(file, "write", &flags, |_| Ok(()), move |_| Ok(new.clone()))
 }
 
-/// `apply <file> [...]` — apply a batch of ops from stdin, atomically.
-/// Ops (one per line; `#` and blanks ignored), all against ORIGINAL line numbers:
+/// `apply [file] [...]` — apply a batch of ops from stdin, atomically. Ops (one
+/// per line; `#` and blanks ignored), all against each file's ORIGINAL line
+/// numbers:
+///     file    <path>          (switch target; needed for multi-file batches)
 ///     expect  <N> <text>      replace <N> <text>
 ///     insert  <after-N> <text>    delete  <A-B>
+/// Nothing is written unless EVERY file's ops succeed (cross-file all-or-nothing).
 fn cmd_apply(args: &[String]) -> u8 {
     let flags = parse_edit_flags(args);
-    let file = match flags.rest.first() {
-        Some(f) => f.as_str(),
-        None => return usage_err("apply <file> [--diff|--json] [--dry-run]   (ops on stdin)"),
-    };
+    // An optional CLI file arg is the initial target (back-compat single-file form).
+    let mut current: Option<String> = flags.rest.first().cloned();
+
     let mut input = String::new();
     if io::stdin().read_to_string(&mut input).is_err() {
         eprintln!("tarn: failed to read stdin");
         return EXIT_USAGE;
     }
-    let mut ops = Vec::new();
+
+    // Group ops by file, preserving first-seen order. A `file <path>` line moves
+    // the target; ops for the same file (across sections) merge into one group.
+    let mut groups: Vec<(String, Vec<textfile::Op>)> = Vec::new();
     for (i, raw) in input.lines().enumerate() {
-        match parse_op(raw) {
-            Ok(Some(op)) => ops.push(op),
-            Ok(None) => {}
+        let t = raw.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        if let Some(rest) = raw.trim_start().strip_prefix("file ") {
+            current = Some(rest.trim().to_string());
+            continue;
+        }
+        let op = match parse_op(raw) {
+            Ok(Some(op)) => op,
+            Ok(None) => continue,
             Err(e) => {
                 eprintln!("tarn: ops line {}: {e}", i + 1);
                 return EXIT_USAGE;
             }
+        };
+        let target = match &current {
+            Some(f) => f.clone(),
+            None => {
+                eprintln!("tarn: ops line {}: no target file — start with `file <path>` or pass one as an argument", i + 1);
+                return EXIT_USAGE;
+            }
+        };
+        match groups.iter_mut().find(|(p, _)| *p == target) {
+            Some((_, ops)) => ops.push(op),
+            None => groups.push((target, vec![op])),
         }
     }
-    let old = match fs::read_to_string(file) {
-        Ok(c) => c,
-        Err(_) => {
-            eprintln!("tarn: cannot read {file}");
-            return EXIT_NOT_FOUND;
+
+    if groups.is_empty() {
+        return usage_err("apply [file] [--diff|--json|--dry-run]   (ops on stdin)");
+    }
+
+    // Validate + compute every file first; write nothing until all succeed.
+    let mut changes: Vec<(String, String, String)> = Vec::new(); // (path, old, new)
+    for (path, ops) in &groups {
+        let old = match fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => {
+                eprintln!("tarn: cannot read {path}");
+                return EXIT_NOT_FOUND;
+            }
+        };
+        match textfile::apply_ops(&old, ops) {
+            Ok(new) => changes.push((path.clone(), old, new)),
+            Err(e) => {
+                let code = if e.starts_with("expect failed") { EXIT_GUARD } else { EXIT_USAGE };
+                eprintln!("tarn: {path}: {e}");
+                return code;
+            }
         }
-    };
-    let new = match textfile::apply_ops(&old, &ops) {
-        Ok(n) => n,
-        Err(e) => {
-            let code = if e.starts_with("expect failed") { EXIT_GUARD } else { EXIT_USAGE };
-            eprintln!("tarn: {e}");
-            return code;
+    }
+
+    if !flags.dry_run {
+        for (path, _, new) in &changes {
+            if let Err(e) = fs::write(path, new) {
+                eprintln!("tarn: cannot write {path}: {e}");
+                return EXIT_USAGE;
+            }
         }
-    };
-    commit(file, "apply", &flags, &old, &new)
+    }
+
+    // Report: per-file diff, or a JSON summary across files.
+    if flags.json {
+        let files: Vec<(String, usize, usize)> = changes
+            .iter()
+            .map(|(p, o, n)| (p.clone(), o.lines().count(), n.lines().count()))
+            .collect();
+        print!("{}", render::apply_json(&files, flags.dry_run));
+    } else {
+        let multi = changes.len() > 1;
+        for (path, old, new) in &changes {
+            if multi {
+                let header = format!("── {path} ──");
+                print!("{}", if flags.color { format!("\x1b[38;2;199;117;46m{header}\x1b[0m\n") } else { format!("{header}\n") });
+            }
+            print!("{}", render::diff(old, new, flags.color));
+        }
+    }
+    let _ = io::stdout().flush();
+    EXIT_OK
 }
 
 /// Parse one line of the `apply` op protocol.
@@ -1320,7 +1381,8 @@ USAGE:
     tarn insert  <file> <after-N> <text>  insert after line N (0=top)
     tarn delete  <file> <A-B>             delete line range  (alias: del)
     tarn write   <file>                   replace file from stdin
-    tarn apply   <file>                   batch ops from stdin, atomically
+    tarn apply   [file]                   batch ops from stdin, atomically
+        across files too: a `file <path>` line in the ops switches target
     tarn rename  <path> <old> <new>       whole-word rename in a file/dir
         --in <def> (within that def; first if names repeat) | --substring | --dry-run
     tarn json get <file> <path>           read a JSON value by path (a.b.0.c)
