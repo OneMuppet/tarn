@@ -331,6 +331,41 @@ pub fn apply_json(files: &[(String, usize, usize)], dry_run: bool) -> String {
     )
 }
 
+// --- defs (go-to-definition) --------------------------------------------------
+/// Human-readable definition sites for a symbol: `file:line  kind name (a–b)`.
+pub fn defs_view(name: &str, items: &[(String, Def)], color: bool) -> String {
+    let mut out = String::new();
+    let head = format!("┌─ defs {} ─ {} found ", jstr(name), items.len());
+    out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(20))));
+    out.push('\n');
+    for (file, d) in items {
+        let loc = paint(color, &format!("{COPPER}{BOLD}"), &format!("{file}:{}", d.line));
+        let kind = paint(color, DIM, &d.kind);
+        let range = paint(color, DIM, &format!("({}–{})", d.line, d.end));
+        out.push_str(&format!("{loc}  {kind} {}  {range}\n", d.name));
+    }
+    out.push_str(&paint(color, COPPER, &format!("└{}", "─".repeat(40))));
+    out.push('\n');
+    out
+}
+
+/// Machine-readable definition sites.
+pub fn defs_json(name: &str, items: &[(String, Def)]) -> String {
+    let arr: Vec<String> = items
+        .iter()
+        .map(|(file, d)| {
+            format!(
+                "{{\"file\":{},\"line\":{},\"end\":{},\"kind\":{}}}",
+                jstr(file),
+                d.line,
+                d.end,
+                jstr(&d.kind)
+            )
+        })
+        .collect();
+    format!("{{\"name\":{},\"defs\":[{}]}}\n", jstr(name), arr.join(","))
+}
+
 /// Machine-readable result of an edit.
 pub fn edit_json(path: &str, op: &str, before: usize, after: usize, dry_run: bool) -> String {
     format!(

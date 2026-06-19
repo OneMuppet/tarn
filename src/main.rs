@@ -86,6 +86,7 @@ fn run(args: &[String]) -> u8 {
         "show" => cmd_show(&args[1..]),
         "outline" => cmd_outline(&args[1..]),
         "peek" => cmd_peek(&args[1..]),
+        "defs" => cmd_defs(&args[1..]),
         "find" => cmd_find(&args[1..]),
         "check" => cmd_check(&args[1..]),
         "diff" => cmd_diff(&args[1..]),
@@ -921,6 +922,63 @@ fn cmd_check(args: &[String]) -> u8 {
 
 /// `peek <file> <name> [--json] [--plain|--color]`
 /// Show just the definition named `name` (its whole block). Exit 1 if not found.
+/// `defs <name> [path] [--json]` — find where `name` is DEFINED (not every
+/// occurrence) across a file or directory: go-to-definition via the structure
+/// heuristics. `path` defaults to the current directory. Exit 1 if none found.
+fn cmd_defs(args: &[String]) -> u8 {
+    let json = args.iter().any(|a| a == "--json");
+    let color_pref = color_flag(args);
+    // Positionals: everything after a bare `--` is literal; before it, skip flags.
+    let mut pos: Vec<&str> = Vec::new();
+    let mut literal = false;
+    for a in args {
+        if literal {
+            pos.push(a);
+        } else if a == "--" {
+            literal = true;
+        } else if !a.starts_with('-') {
+            pos.push(a);
+        }
+    }
+    let name = match pos.first() {
+        Some(n) => *n,
+        None => return usage_err("defs <name> [path] [--json]"),
+    };
+    let path = pos.get(1).copied().unwrap_or(".");
+
+    let mut found: Vec<(String, structure::Def)> = Vec::new();
+    for f in collect_files(path) {
+        let bytes = match fs::read(&f) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        if bytes.iter().take(8192).any(|&b| b == 0) {
+            continue;
+        }
+        let content = match std::str::from_utf8(&bytes) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let fname = f.to_string_lossy().to_string();
+        for d in structure::outline(&fname, content) {
+            if d.name == name {
+                found.push((fname.clone(), d));
+            }
+        }
+    }
+    if found.is_empty() {
+        eprintln!("tarn: no definition named '{name}' under {path}");
+        return EXIT_NOT_FOUND;
+    }
+    if json {
+        print!("{}", render::defs_json(name, &found));
+    } else {
+        print!("{}", render::defs_view(name, &found, color_pref.unwrap_or_else(use_color)));
+    }
+    let _ = io::stdout().flush();
+    EXIT_OK
+}
+
 fn cmd_peek(args: &[String]) -> u8 {
     let json = args.iter().any(|a| a == "--json");
     let color_pref = color_flag(args);
@@ -1842,6 +1900,7 @@ USAGE:
     tarn outline <path>         map of defs/classes/headings — file OR dir
         --depth N (limit nesting)  |  --json
     tarn peek    <file> <name>  show just the definition named <name>  [--json]
+    tarn defs    <name> [path]   where <name> is DEFINED (go-to-definition) [--json]
     tarn find    <path> <text>  search a file OR directory; hits with file+line
         -i (ignore case) | -w (whole word) | --enclosing | --limit N | --json
         -c/--count (just the number) | -l/--files (just filenames) | --ext rs,toml

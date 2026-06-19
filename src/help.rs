@@ -22,6 +22,13 @@ pub const COMMANDS: &[Cmd] = &[
         examples: &["tarn outline src/ --depth 0", "tarn outline app.py --json"],
     },
     Cmd {
+        name: "defs",
+        group: "navigate",
+        usage: "tarn defs <name> [path] [--json]",
+        summary: "Go-to-definition: find where <name> is DEFINED (not every occurrence) across a file or directory. path defaults to the current dir.",
+        examples: &["tarn defs handle_request src/", "tarn defs Config --json"],
+    },
+    Cmd {
         name: "find",
         group: "navigate",
         usage: "tarn find <path> <pattern> [-i] [-w] [-c] [-l] [--enclosing] [-A/-B/-C N] [--ext rs,toml] [--limit N] [--json] [-- <pattern>]",
@@ -229,7 +236,7 @@ mod tests {
     fn manifest_covers_every_dispatched_command() {
         // Keep this list in sync with the dispatcher in main.rs::run.
         for name in [
-            "outline", "find", "peek", "show", "replace", "insert", "delete", "write", "apply",
+            "outline", "defs", "find", "peek", "show", "replace", "insert", "delete", "write", "apply",
             "rename", "json", "toml", "yaml", "check", "diff", "get", "set", "unset", "keys",
             "view",
         ] {

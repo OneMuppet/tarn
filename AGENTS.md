@@ -40,6 +40,7 @@ tarn check src/server.rs             # 6. verify you left no junk
 | Map a file or repo | `tarn outline <path> [--depth N] [--json]` |
 | Search (file or dir) | `tarn find <path> <pat> [-i -w -c -l --enclosing -A/-B/-C N --json]` |
 | Read one definition | `tarn peek <file> <name>` |
+| Go-to-definition | `tarn defs <name> [path] [--json]` |
 | Open a region | `tarn show <file> [--around N \| --block N \| --lines A-B] [--highlight A-B]` |
 | Replace a line | `tarn replace <file> <N> <text> [--expect T] [--diff\|--dry-run]` |
 | Replace by content | `tarn replace <file> --match <anchor> <new-line> [--all]` |
