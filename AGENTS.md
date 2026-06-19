@@ -11,26 +11,37 @@ focused help. Build with `cargo build --release`; binary at `target/release/tarn
 
 ## Why tarn instead of the usual tools
 
+- **Navigate like an LSP, without one.** `tree` to orient, `outline` to map a
+  file, `defs` to jump to where a symbol is defined, `refs` to find who uses it,
+  `peek` to read one definition — all from extension-aware heuristics, no language
+  server, no index.
 - **Search returns structure, not just lines.** `tarn find` gives `file:line` for
   every hit and, with `--enclosing`, the *definition that contains it* — and it's
-  ~2.5× faster than the system grep.
+  several times faster than the system grep (~8× in a 289 MB benchmark; see the
+  README's Performance section).
 - **Edits are surgical and guarded.** Line-addressed, never reflow untouched lines
   (CRLF preserved), and `--expect` refuses to edit if the target changed (exit 3) —
   so you don't clobber the wrong line after numbers drift, and you don't need a
-  defensive re-read.
-- **Changes are previewable and atomic.** `--dry-run` previews; `apply` runs a
-  batch (even across files) all-or-nothing with rollback.
+  defensive re-read. Edit by semantic unit too: `delete --def` / `replace --def`
+  remove or swap a whole definition by name.
+- **Apply your own diffs.** `git diff | tarn patch` applies a unified diff
+  directly — strict on content but tolerant of drifted line numbers (it relocates
+  a hunk to where its context uniquely matches, refuses if ambiguous).
+- **Changes are previewable and atomic.** `--dry-run` previews; `apply` and `patch`
+  run a batch (even across files) all-or-nothing with rollback.
 - **`--json` on read & edit commands.** Pipe results from one command into the next. (`diff` and config `get` return raw values, not JSON.)
 
 ## The everyday loop
 
 ```sh
+tarn tree src/                       # 0. see the shape of the codebase
 tarn outline src/ --depth 0          # 1. map the repo without reading it
-tarn find src/ handle_request --enclosing --json   # 2. locate, with context
-tarn peek src/server.rs handle_request             # 3. read one definition
-tarn show src/server.rs --around 42 --highlight 42 # 4. open a region in chat
-tarn replace src/server.rs 42 'new line' --expect 'old line' --diff   # 5. edit, guarded
-tarn check src/server.rs             # 6. verify you left no junk
+tarn defs handle_request src/        # 2. jump to where a symbol is defined
+tarn refs handle_request src/        # 3. …and find everyone who uses it
+tarn peek src/server.rs handle_request             # 4. read one definition
+tarn show src/server.rs --around 42 --highlight 42 # 5. open a region in chat
+tarn replace src/server.rs 42 'new line' --expect 'old line' --diff   # 6. edit, guarded
+tarn check src/server.rs             # 7. verify you left no junk
 ```
 
 ## Command quick-reference
