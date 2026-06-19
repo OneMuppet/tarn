@@ -100,15 +100,15 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd {
         name: "toml",
         group: "config",
-        usage: "tarn toml get <file> <path>  |  tarn toml set <file> <path> <value> [--dry-run|--diff]",
-        summary: "Read or set a TOML value by dotted path (server.port), preserving the file's formatting (comments, key order). Single-line values; errors on multiline/array-of-tables.",
+        usage: "tarn toml get|set|del <file> <path> [value] [--dry-run|--diff]",
+        summary: "Read, set, or delete a TOML value by dotted path (server.port), preserving the file's formatting (comments, key order). Single-line values; errors on multiline/array-of-tables.",
         examples: &["tarn toml get Cargo.toml package.version", "tarn toml set pyproject.toml tool.ruff.line-length 100"],
     },
     Cmd {
         name: "yaml",
         group: "config",
-        usage: "tarn yaml get <file> <path>  |  tarn yaml set <file> <path> <value> [--dry-run|--diff]",
-        summary: "Read or set a YAML value by dotted path (server.host), preserving formatting/comments. Block-mapping scalars only; errors (never corrupts) on sequences/flow/block-scalars/anchors/multi-doc.",
+        usage: "tarn yaml get|set|del <file> <path> [value] [--dry-run|--diff]",
+        summary: "Read, set, or delete a YAML value by dotted path (server.host), preserving formatting/comments. Block-mapping scalars only; errors (never corrupts) on sequences/flow/block-scalars/anchors/multi-doc.",
         examples: &["tarn yaml get deploy.yaml spec.replicas", "tarn yaml set ci.yml jobs.build.timeout-minutes 30"],
     },
     Cmd {

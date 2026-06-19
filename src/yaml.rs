@@ -254,6 +254,20 @@ pub fn get(content: &str, path: &str) -> Result<Option<String>, String> {
     }))
 }
 
+/// Delete the leaf scalar at `path` by removing its whole line. `Ok(None)` =
+/// absent; `Err` = not a deletable leaf (parent/sequence/flow/multiline).
+pub fn del(content: &str, path: &str) -> Result<Option<String>, String> {
+    let es = entries(content)?;
+    let pos = match find(&es, path) {
+        Some(e) if e.settable => e.vstart,
+        Some(_) => return Err("cannot delete a sequence, flow, multiline, or nested value".into()),
+        None => return Ok(None),
+    };
+    let ls = content[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let le = content[pos..].find('\n').map(|i| pos + i + 1).unwrap_or(content.len());
+    Ok(Some(format!("{}{}", &content[..ls], &content[le..])))
+}
+
 /// Set the value at `path`, preserving surrounding bytes. `Ok(None)` = absent;
 /// `Err` = unsupported target (sequence/flow/block scalar/anchor/parent).
 pub fn set(content: &str, path: &str, value: &str) -> Result<Option<String>, String> {
@@ -373,6 +387,14 @@ greeting: \"hello world\"
     #[test]
     fn missing_set_is_none() {
         assert_eq!(set(Y, "ghost", "1").unwrap(), None);
+    }
+
+    #[test]
+    fn del_removes_leaf_line() {
+        let y = "name: demo\nport: 8000\nhost: x\n";
+        assert_eq!(del(y, "port").unwrap().unwrap(), "name: demo\nhost: x\n");
+        assert_eq!(del(y, "ghost").unwrap(), None);
+        assert!(del("a:\n  - 1\n", "a").is_err()); // can't delete a sequence parent
     }
 
     #[test]

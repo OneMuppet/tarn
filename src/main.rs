@@ -627,7 +627,34 @@ fn cmd_toml(args: &[String]) -> u8 {
     match args.first().map(String::as_str) {
         Some("get") => toml_get(&args[1..]),
         Some("set") => toml_set(&args[1..]),
-        _ => usage_err("toml get <file> <path>   |   toml set <file> <path> <value>"),
+        Some("del") => toml_del(&args[1..]),
+        _ => usage_err("toml get|set|del <file> <path> [value]"),
+    }
+}
+
+fn toml_del(args: &[String]) -> u8 {
+    let flags = parse_edit_flags(args);
+    let (file, path) = match (flags.rest.first(), flags.rest.get(1)) {
+        (Some(f), Some(p)) => (f.as_str(), p.as_str()),
+        _ => return usage_err("toml del <file> <path> [--dry-run|--diff]"),
+    };
+    let old = match fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
+    match toml::del(&old, path) {
+        Ok(Some(new)) => commit(file, "toml del", &flags, &old, &new),
+        Ok(None) => {
+            eprintln!("tarn: path not found: {path}");
+            EXIT_NOT_FOUND
+        }
+        Err(e) => {
+            eprintln!("tarn: {file}: {e}");
+            EXIT_USAGE
+        }
     }
 }
 
@@ -687,7 +714,34 @@ fn cmd_yaml(args: &[String]) -> u8 {
     match args.first().map(String::as_str) {
         Some("get") => yaml_get(&args[1..]),
         Some("set") => yaml_set(&args[1..]),
-        _ => usage_err("yaml get <file> <path>   |   yaml set <file> <path> <value>"),
+        Some("del") => yaml_del(&args[1..]),
+        _ => usage_err("yaml get|set|del <file> <path> [value]"),
+    }
+}
+
+fn yaml_del(args: &[String]) -> u8 {
+    let flags = parse_edit_flags(args);
+    let (file, path) = match (flags.rest.first(), flags.rest.get(1)) {
+        (Some(f), Some(p)) => (f.as_str(), p.as_str()),
+        _ => return usage_err("yaml del <file> <path> [--dry-run|--diff]"),
+    };
+    let old = match fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
+    match yaml::del(&old, path) {
+        Ok(Some(new)) => commit(file, "yaml del", &flags, &old, &new),
+        Ok(None) => {
+            eprintln!("tarn: path not found: {path}");
+            EXIT_NOT_FOUND
+        }
+        Err(e) => {
+            eprintln!("tarn: {file}: {e}");
+            EXIT_USAGE
+        }
     }
 }
 
@@ -1652,6 +1706,7 @@ USAGE:
     tarn json set <file> <path> <value>   set it, preserving file formatting
     tarn toml get <file> <path>           read a TOML value by path (a.b.c)
     tarn toml set <file> <path> <value>   set it, preserving comments + layout
+    tarn toml del <file> <path>           delete a key (toml/yaml; json next)
     tarn yaml get <file> <path>           read a YAML value by path (a.b.c)
     tarn yaml set <file> <path> <value>   set it (block-mapping scalars)
         edit flags:  --diff (preview) | --json | --dry-run (don't write)

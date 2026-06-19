@@ -312,6 +312,20 @@ pub fn get(content: &str, path: &str) -> Result<Option<String>, String> {
     }))
 }
 
+/// Delete the key at `path` by removing its whole line. `Ok(None)` = absent;
+/// `Err` = not a deletable single-line key (multiline/array-of-table).
+pub fn del(content: &str, path: &str) -> Result<Option<String>, String> {
+    let es = entries(content)?;
+    let pos = match find(&es, path) {
+        Some(e) if e.settable => e.vstart,
+        Some(_) => return Err("cannot delete a multiline or array-of-table value".into()),
+        None => return Ok(None),
+    };
+    let ls = content[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let le = content[pos..].find('\n').map(|i| pos + i + 1).unwrap_or(content.len());
+    Ok(Some(format!("{}{}", &content[..ls], &content[le..])))
+}
+
 /// Set the value at `path`, preserving surrounding bytes. `value` is used verbatim
 /// if it's a valid single-line TOML value, else encoded as a basic string.
 /// `Ok(None)` = path not present; `Err` = unsupported target (multiline/array-of-table).
@@ -586,6 +600,13 @@ enabled = false
         assert_eq!(get(m, "y").unwrap().as_deref(), Some("1"));
         // setting the multiline value errors, never corrupts
         assert!(set(m, "x", "z").is_err());
+    }
+
+    #[test]
+    fn del_removes_key_line() {
+        let t = "a = 1\nb = 2\nc = 3\n";
+        assert_eq!(del(t, "b").unwrap().unwrap(), "a = 1\nc = 3\n");
+        assert_eq!(del(t, "z").unwrap(), None);
     }
 
     #[test]
