@@ -244,13 +244,14 @@ fn decode_string(s: &str) -> String {
 /// Get the value at `path`. Quoted scalars are decoded; plain scalars returned raw.
 pub fn get(content: &str, path: &str) -> Result<Option<String>, String> {
     let es = entries(content)?;
-    Ok(find(&es, path).map(|e| {
-        let raw = &content[e.vstart..e.vend];
-        if e.is_string {
-            decode_string(raw)
-        } else {
-            raw.to_string()
+    Ok(find(&es, path).and_then(|e| {
+        // A parent key (a nested mapping / sequence owner) has an empty value
+        // span — there's no scalar to return, so report not-found rather than "".
+        if e.vstart == e.vend {
+            return None;
         }
+        let raw = &content[e.vstart..e.vend];
+        Some(if e.is_string { decode_string(raw) } else { raw.to_string() })
     }))
 }
 
@@ -387,6 +388,15 @@ greeting: \"hello world\"
     #[test]
     fn missing_set_is_none() {
         assert_eq!(set(Y, "ghost", "1").unwrap(), None);
+    }
+
+    #[test]
+    fn get_on_parent_key_is_none() {
+        // a key whose value is a nested mapping or sequence has no scalar to return
+        let y = "server:\n  host: x\nsteps:\n  - a\n  - b\n";
+        assert_eq!(get(y, "server").unwrap(), None); // nested mapping parent
+        assert_eq!(get(y, "steps").unwrap(), None); // sequence owner
+        assert_eq!(get(y, "server.host").unwrap().as_deref(), Some("x")); // real scalar still works
     }
 
     #[test]
