@@ -158,17 +158,18 @@ fn cmd_get(args: &[String]) -> u8 {
 }
 
 fn cmd_set(args: &[String]) -> u8 {
-    let file = match args.first() {
-        Some(f) => f,
+    let flags = parse_edit_flags(args);
+    let file = match flags.rest.first() {
+        Some(f) => f.as_str(),
         None => return usage_err("set <file> <KEY=VAL>"),
     };
 
     // Accept either `set file KEY=VAL` or `set file KEY VAL`.
-    let (key, value) = match args.get(1) {
+    let (key, value) = match flags.rest.get(1) {
         Some(second) => {
             if let Some((k, v)) = second.split_once('=') {
                 (k.to_string(), v.to_string())
-            } else if let Some(v) = args.get(2) {
+            } else if let Some(v) = flags.rest.get(2) {
                 (second.clone(), v.clone())
             } else {
                 return usage_err("set <file> <KEY=VAL>   (or: set <file> <KEY> <VAL>)");
@@ -181,31 +182,20 @@ fn cmd_set(args: &[String]) -> u8 {
         return usage_err("set <file> <KEY=VAL>   (KEY must not be empty)");
     }
 
-    let content = read_or_empty(file);
-    let updated = envfile::set(&content, &key, &value);
-    match fs::write(file, updated) {
-        Ok(()) => EXIT_OK,
-        Err(e) => {
-            eprintln!("tarn: cannot write {file}: {e}");
-            EXIT_USAGE
-        }
-    }
+    let old = read_or_empty(file);
+    let new = envfile::set(&old, &key, &value);
+    commit(file, "set", &flags, &old, &new)
 }
 
 fn cmd_unset(args: &[String]) -> u8 {
-    let (file, key) = match (args.first(), args.get(1)) {
-        (Some(f), Some(k)) => (f, k),
+    let flags = parse_edit_flags(args);
+    let (file, key) = match (flags.rest.first(), flags.rest.get(1)) {
+        (Some(f), Some(k)) => (f.as_str(), k.as_str()),
         _ => return usage_err("unset <file> <KEY>"),
     };
-    let content = read_or_empty(file);
-    let updated = envfile::unset(&content, key);
-    match fs::write(file, updated) {
-        Ok(()) => EXIT_OK,
-        Err(e) => {
-            eprintln!("tarn: cannot write {file}: {e}");
-            EXIT_USAGE
-        }
-    }
+    let old = read_or_empty(file);
+    let new = envfile::unset(&old, key);
+    commit(file, "unset", &flags, &old, &new)
 }
 
 fn cmd_keys(args: &[String]) -> u8 {
