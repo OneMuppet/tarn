@@ -15,12 +15,15 @@
 
 **tarn is the editor your agent wishes it had.** A tiny terminal text editor you can
 actually understand — no modes, no manual, the help is always on screen — and a
-fast, **structural command-line toolkit built for AI agents**: map a codebase (`outline`), search it with the
-enclosing definition of every hit (`find`), read one function by name (`peek`),
-edit it surgically with guards (`replace --expect`, `apply`), refactor
-(`rename`), patch config without reflowing it (`json`), and check your work
-(`check`) — all deterministic, `--json`-chainable, and quicker than the system
-grep. Still zero dependencies.
+fast, **structural command-line toolkit built for AI agents**: get your bearings in a
+repo (`tree`), map a file (`outline`), jump to where a symbol is defined (`defs`) or
+used (`refs`), search with the enclosing definition of every hit (`find`), and read one
+function by name (`peek`) — LSP-style navigation with no language server. Then edit by
+*unit of meaning*: swap or delete a whole definition (`replace --def`, `delete --def`),
+edit surgically with guards (`replace --expect`, `apply`), refactor (`rename`), patch
+config without reflowing it (`json`/`toml`/`yaml`), and check your work (`check`) — all
+deterministic, `--json`-chainable, and quicker than the system grep. Still zero
+dependencies.
 
 > _The name comes from **tarnish** — the slow aging of metal. Polished copper
 > tarnishes and, given time, becomes a **patina**; tarn is the small, sharp sibling
@@ -99,10 +102,11 @@ The editor only starts when stdout is a real terminal. If you pipe into it or ru
 it under a harness, `tarn` won't try to be a TUI — it prints the file and points
 you at the subcommands below.
 
-## Navigate a file without reading it
+## Navigate a repo without reading it
 
-For an agent, reading a whole file just to find one thing burns context. These
-two give you structure cheaply — see the shape, then jump to the part you need.
+For an agent, reading whole files just to find one thing burns context. This
+suite gives you structure cheaply — orient in the repo, see a file's shape, then
+jump straight to the symbol you need. LSP-style navigation, no language server.
 
 ```sh
 tarn tree   src/ --lines       # vendor-aware file tree (skips node_modules/target/…)
