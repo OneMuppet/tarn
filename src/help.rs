@@ -112,7 +112,7 @@ pub const COMMANDS: &[Cmd] = &[
         name: "patch",
         group: "edit",
         usage: "tarn patch [--diff|--json] [--dry-run]   (unified diff on stdin)",
-        summary: "Apply a unified diff from stdin (git diff / standard `diff -u`). Strict: a hunk applies only if its context matches exactly (else exit 3). Multi-file diffs are atomic; file creation is supported, deletion is refused.",
+        summary: "Apply a unified diff from stdin (git diff / standard `diff -u`). Strict on content, tolerant of drifted line numbers: a hunk relocates to where its context uniquely matches, but is refused (exit 3) if the context is absent or ambiguous. Multi-file diffs are atomic; file creation is supported, deletion is refused.",
         examples: &["git diff | tarn patch --dry-run", "tarn patch --diff < changes.patch"],
     },
     Cmd {

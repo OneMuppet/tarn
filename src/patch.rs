@@ -2,11 +2,17 @@
 //! diff it (or `git diff`) produced straight into `tarn patch`, instead of
 //! translating it into `apply`'s op format.
 //!
-//! Strict on purpose: a hunk is applied only if its context and removed lines
-//! match the file exactly at the stated location. No fuzz, no offset search — if
-//! the file has drifted, the patch is refused (a guard failure) rather than
-//! applied to the wrong place. That matches tarn's `--expect` philosophy: a
-//! failed edit is safer than a wrong one.
+//! Strict on CONTENT, tolerant of POSITION. A hunk applies only if its context
+//! and removed lines match the file exactly — but its stated line numbers may
+//! have drifted (an agent read the file earlier, or miscounted), so if the
+//! context doesn't match where the diff claims, the hunk is relocated to the
+//! UNIQUE place it does match. If the context is absent, or matches in more than
+//! one place, the patch is refused rather than applied to the wrong line. That
+//! keeps tarn's `--expect` philosophy — a failed edit is safer than a wrong
+//! one — while still accepting the slightly-stale diffs agents really produce.
+//! (One case can't relocate: a pure insertion with no context lines has nothing
+//! to anchor on, so it uses its stated line as-is. Real `git diff` always wraps
+//! insertions in context, so this only affects hand-written `-U0` diffs.)
 
 /// One line inside a hunk body.
 enum Line {
@@ -154,66 +160,112 @@ impl ApplyError {
     }
 }
 
-/// Apply `hunks` to `content`, returning the patched text. Strict: every context
-/// and removed line must match the file exactly at the hunk's location — any
-/// mismatch (including the file being shorter than the hunk reaches) is
-/// [`ApplyError::Drift`]. A structurally broken diff (overlapping hunks) is
-/// [`ApplyError::Malformed`]. `old_start == 0` (empty-file/creation hunks) is
-/// treated as the top of the file. Works on `\n`-split lines and rejoins with
-/// `\n`; the command layer re-applies the file's own ending.
+/// The original lines a hunk consumes, in order: its context + removed lines.
+/// This is the content the hunk must match against the file (its "anchor").
+fn anchor(hunk: &Hunk) -> Vec<&str> {
+    hunk.lines
+        .iter()
+        .filter_map(|l| match l {
+            Line::Context(t) | Line::Remove(t) => Some(t.as_str()),
+            Line::Add(_) => None,
+        })
+        .collect()
+}
+
+/// Does `anchor` match the original lines starting at `pos`?
+fn matches_at(orig: &[&str], pos: usize, anchor: &[&str]) -> bool {
+    pos + anchor.len() <= orig.len() && orig[pos..pos + anchor.len()] == *anchor
+}
+
+/// Find where hunk `h` should apply: prefer its stated position when the context
+/// matches there; otherwise relocate it to the UNIQUE place its context matches
+/// (so a diff whose line numbers have drifted still applies, as long as it's
+/// unambiguous). Returns Drift if the context is absent or appears in more than
+/// one place, Malformed if the hunk is out of order.
+fn locate(
+    orig: &[&str],
+    anchor: &[&str],
+    stated: usize,
+    cursor: usize,
+    h: usize,
+) -> Result<usize, ApplyError> {
+    if stated < cursor {
+        return Err(ApplyError::Malformed(format!(
+            "hunk {} overlaps a previous hunk",
+            h + 1
+        )));
+    }
+    // Pure insertion (no context/removed lines): nothing to match on, so it can
+    // only go where the diff says. The position must be within the file.
+    if anchor.is_empty() {
+        if stated > orig.len() {
+            return Err(ApplyError::Drift(format!(
+                "hunk {} inserts at line {} but the file has {} lines",
+                h + 1,
+                stated + 1,
+                orig.len()
+            )));
+        }
+        return Ok(stated);
+    }
+    // Exact position still matches → use it (authoritative even if the context
+    // also appears elsewhere).
+    if matches_at(orig, stated, anchor) {
+        return Ok(stated);
+    }
+    // Drifted: relocate to the unique in-order position whose context matches.
+    let max = orig.len().saturating_sub(anchor.len());
+    let mut found: Option<usize> = None;
+    for p in cursor..=max {
+        if matches_at(orig, p, anchor) {
+            if found.is_some() {
+                return Err(ApplyError::Drift(format!(
+                    "hunk {} is ambiguous: its context matches more than one location \
+                     (add more context lines)",
+                    h + 1
+                )));
+            }
+            found = Some(p);
+        }
+    }
+    found.ok_or_else(|| {
+        ApplyError::Drift(format!(
+            "hunk {} does not match the file (its context was not found)",
+            h + 1
+        ))
+    })
+}
+
+/// Apply `hunks` to `content`, returning the patched text. Strict on CONTENT —
+/// a hunk's context and removed lines must match the file exactly — but tolerant
+/// of POSITION: if a hunk's stated line numbers have drifted, it's relocated to
+/// the unique place its context matches. Absent or ambiguous context is refused
+/// ([`ApplyError::Drift`]); out-of-order hunks are [`ApplyError::Malformed`].
+/// Works on `\n`-split lines and rejoins with `\n`; the command layer re-applies
+/// the file's own ending.
 pub fn apply(content: &str, hunks: &[Hunk]) -> Result<String, ApplyError> {
     let orig: Vec<&str> = content.lines().collect();
     let mut out: Vec<String> = Vec::new();
     let mut cursor = 0usize; // next original line to copy (0-based)
 
     for (h, hunk) in hunks.iter().enumerate() {
-        // Where this hunk begins in the original (1-based → 0-based). A creation
-        // or pure-append hunk may carry old_start 0.
-        let begin = hunk.old_start.saturating_sub(1);
-        if begin < cursor {
-            return Err(ApplyError::Malformed(format!(
-                "hunk {} overlaps a previous hunk",
-                h + 1
-            )));
-        }
-        if begin > orig.len() {
-            // The file is shorter than the diff expects → it has drifted.
-            return Err(ApplyError::Drift(format!(
-                "hunk {} starts at line {} but the file has {} lines",
-                h + 1,
-                hunk.old_start,
-                orig.len()
-            )));
-        }
-        // Copy untouched lines before the hunk.
-        for l in &orig[cursor..begin] {
+        let anchor = anchor(hunk);
+        let stated = hunk.old_start.saturating_sub(1);
+        let pos = locate(&orig, &anchor, stated, cursor, h)?;
+        // Copy untouched lines before the hunk's actual position.
+        for l in &orig[cursor..pos] {
             out.push((*l).to_string());
         }
-        cursor = begin;
-        // Walk the hunk body, verifying context/removals against the original.
+        cursor = pos;
+        // Emit the body. Context/removed lines match the original here by
+        // construction (locate verified the anchor), so we trust and advance.
         for line in &hunk.lines {
             match line {
-                Line::Context(text) | Line::Remove(text) => {
-                    let actual = orig.get(cursor).ok_or_else(|| {
-                        ApplyError::Drift(format!(
-                            "hunk {} extends past the end of the file",
-                            h + 1
-                        ))
-                    })?;
-                    if actual != text {
-                        return Err(ApplyError::Drift(format!(
-                            "hunk {} does not match at line {}: expected {:?}, found {:?}",
-                            h + 1,
-                            cursor + 1,
-                            text,
-                            actual
-                        )));
-                    }
-                    if let Line::Context(_) = line {
-                        out.push(text.clone());
-                    }
-                    cursor += 1; // both context and removed consume an original line
+                Line::Context(text) => {
+                    out.push(text.clone());
+                    cursor += 1;
                 }
+                Line::Remove(_) => cursor += 1,
                 Line::Add(text) => out.push(text.clone()),
             }
         }
@@ -331,6 +383,39 @@ mod tests {
         let err = apply("a\nb\n", files[0].hunks()).unwrap_err();
         // A self-inconsistent diff is malformed, not file drift.
         assert!(!err.is_drift(), "overlap is a malformed diff");
+    }
+
+    #[test]
+    fn relocates_hunk_with_drifted_line_numbers() {
+        // The diff claims line 1, but TARGET is actually on line 3. With a unique
+        // context match, it still applies — at the right place.
+        let d = "--- a/f\n+++ b/f\n@@ -1,1 +1,1 @@\n-TARGET\n+FIXED\n";
+        let files = parse(d).unwrap();
+        let out = apply("h1\nh2\nTARGET\nh4\n", files[0].hunks()).unwrap();
+        assert_eq!(out, "h1\nh2\nFIXED\nh4");
+    }
+
+    #[test]
+    fn ambiguous_relocation_is_refused() {
+        // Stale line number AND the bare context "x" appears twice → refuse.
+        let d = "--- a/f\n+++ b/f\n@@ -9,1 +9,1 @@\n-x\n+Y\n";
+        let files = parse(d).unwrap();
+        let err = apply("x\nmid\nx\n", files[0].hunks()).unwrap_err();
+        assert!(
+            err.is_drift() && err.message().contains("ambiguous"),
+            "{}",
+            err.message()
+        );
+    }
+
+    #[test]
+    fn stated_position_wins_when_it_matches() {
+        // "a" appears on lines 1 and 3; the diff points at line 1 and it matches
+        // there, so it applies at 1 without an ambiguity error.
+        let d = "--- a/f\n+++ b/f\n@@ -1,1 +1,1 @@\n-a\n+A\n";
+        let files = parse(d).unwrap();
+        let out = apply("a\nb\na\n", files[0].hunks()).unwrap();
+        assert_eq!(out, "A\nb\na");
     }
 
     #[test]
