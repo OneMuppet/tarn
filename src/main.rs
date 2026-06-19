@@ -1643,6 +1643,13 @@ fn line_matches(line: &str, pat: &str, ci: bool, word: bool) -> bool {
     if !ci && !word {
         return pat.is_empty() || line.contains(pat);
     }
+    if !ci && word {
+        // A whole-word match requires the substring to be present at all, so use
+        // the fast Two-Way `contains` to skip the (majority) lines that don't
+        // contain it, and only run the boundary scan where it could match.
+        return pat.is_empty()
+            || (line.contains(pat) && find_in(line.as_bytes(), pat.as_bytes(), false, true));
+    }
     find_in(line.as_bytes(), pat.as_bytes(), ci, word)
 }
 
@@ -2611,6 +2618,22 @@ mod tests {
                                                              // ci / word still go through find_in
         assert!(line_matches("The PORT", "port", true, false));
         assert!(!line_matches("import socket", "port", false, true));
+        // word fast path agrees with find_in across boundary cases
+        for (line, pat) in [
+            ("the port is", "port"),
+            ("import socket", "port"),
+            ("use_port(x)", "port"),
+            ("port2 = 1", "port"),
+            ("import port", "port"),
+            ("nomatch", "port"),
+            ("anything", ""),
+        ] {
+            assert_eq!(
+                line_matches(line, pat, false, true),
+                find_in(line.as_bytes(), pat.as_bytes(), false, true),
+                "word mismatch for {line:?} / {pat:?}"
+            );
+        }
     }
 
     #[test]
