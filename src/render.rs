@@ -702,6 +702,31 @@ mod tests {
     }
 
     #[test]
+    fn find_json_context_shape() {
+        let with = FindMatch {
+            file: "f".into(),
+            line: 5,
+            text: "hit".into(),
+            scope: None,
+            before: vec![(4, "b".into())],
+            after: vec![(6, "a".into())],
+        };
+        let j = find_json("x", &[with], 1);
+        assert!(j.contains("\"before\":[{\"n\":4,\"text\":\"b\"}]"));
+        assert!(j.contains("\"after\":[{\"n\":6,\"text\":\"a\"}]"));
+        // no context → before/after omitted entirely
+        let without = FindMatch {
+            file: "f".into(),
+            line: 5,
+            text: "hit".into(),
+            scope: None,
+            before: vec![],
+            after: vec![],
+        };
+        assert!(!find_json("x", &[without], 1).contains("before"));
+    }
+
+    #[test]
     fn edit_json_shape() {
         let j = edit_json("f.txt", "replace", 5, 5, true);
         assert!(j.contains("\"ok\":true"));

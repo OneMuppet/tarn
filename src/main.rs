@@ -760,8 +760,7 @@ fn cmd_find(args: &[String]) -> u8 {
             if !count_only && matches.len() < limit {
                 let scope = defs.as_ref().and_then(|d| structure::qualified_in(d, idx + 1));
                 let (before, after) = if want_ctx {
-                    let lo = idx.saturating_sub(ctx_before);
-                    let hi = (idx + 1 + ctx_after).min(lines.len());
+                    let (lo, hi) = context_bounds(lines.len(), idx, ctx_before, ctx_after);
                     (
                         (lo..idx).map(|j| (j + 1, lines[j].to_string())).collect(),
                         ((idx + 1)..hi).map(|j| (j + 1, lines[j].to_string())).collect(),
@@ -825,6 +824,12 @@ fn cmd_find(args: &[String]) -> u8 {
     }
     let _ = io::stdout().flush();
     EXIT_OK
+}
+
+/// Half-open `[lo, hi)` line-index window for context around a hit at `idx`,
+/// clamped to the file (no underflow at the top, no overrun at the bottom).
+fn context_bounds(len: usize, idx: usize, before: usize, after: usize) -> (usize, usize) {
+    (idx.saturating_sub(before), (idx + 1 + after).min(len))
 }
 
 /// Zero-allocation substring search over bytes. `ci` = ASCII case-insensitive.
@@ -1269,4 +1274,31 @@ EDITOR KEYS:
 EXIT CODES:
     0 success    1 not found    2 usage error    3 guard (--expect) failed"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_bounds_clamps_edges() {
+        // hit on line 1 (idx 0): before clamps to 0, no underflow
+        assert_eq!(context_bounds(10, 0, 5, 2), (0, 3));
+        // hit on the last line (idx 9 of 10): after clamps to len
+        assert_eq!(context_bounds(10, 9, 2, 5), (7, 10));
+        // zero context = just the hit line
+        assert_eq!(context_bounds(10, 4, 0, 0), (4, 5));
+        // window larger than the file clamps both ends
+        assert_eq!(context_bounds(3, 1, 100, 100), (0, 3));
+    }
+
+    #[test]
+    fn find_in_matches_correctly() {
+        assert!(find_in(b"hello world", b"world", false));
+        assert!(!find_in(b"hello", b"World", false)); // case-sensitive
+        assert!(find_in(b"hello", b"ELLO", true)); // ASCII case-insensitive
+        assert!(find_in(b"abc", b"", false)); // empty needle matches
+        assert!(!find_in(b"ab", b"abc", false)); // needle longer than line
+        assert!(find_in("café".as_bytes(), "afé".as_bytes(), false)); // multibyte
+    }
 }
