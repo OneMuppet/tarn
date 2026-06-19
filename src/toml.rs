@@ -170,7 +170,8 @@ fn scan_value(b: &[u8], vs: usize) -> Option<(usize, bool, bool)> {
                 i += 1;
             }
             let mut end = i;
-            while end > vs && (b[end - 1] == b' ' || b[end - 1] == b'\t') {
+            // also trim a trailing CR so a CRLF file's `\r` stays outside the span
+            while end > vs && matches!(b[end - 1], b' ' | b'\t' | b'\r') {
                 end -= 1;
             }
             if end == vs {
@@ -585,6 +586,13 @@ enabled = false
         assert_eq!(get(m, "y").unwrap().as_deref(), Some("1"));
         // setting the multiline value errors, never corrupts
         assert!(set(m, "x", "z").is_err());
+    }
+
+    #[test]
+    fn crlf_round_trips() {
+        let crlf = "x = 1\r\ny = 2\r\n";
+        assert_eq!(set(crlf, "x", "5").unwrap().unwrap(), "x = 5\r\ny = 2\r\n");
+        assert_eq!(get("x = 1\r\n", "x").unwrap().as_deref(), Some("1"));
     }
 
     #[test]

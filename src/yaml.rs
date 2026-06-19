@@ -110,10 +110,15 @@ fn entries(content: &str) -> Result<Vec<Entry>, String> {
     let mut stack: Vec<(usize, String)> = Vec::new(); // (indent, key) of open mappings
     let mut doc_count = 0;
     let mut offset = 0; // byte offset of current line start
+    let mut seq_skip: Option<usize> = None; // inside a sequence: skip lines this-indented-or-deeper
 
     for raw in content.split_inclusive('\n') {
         let line_len = raw.len();
+        // Parse the line WITHOUT its terminator (`\n` and any `\r`), but advance
+        // `offset` by the full raw length — so a CRLF's `\r` stays outside every
+        // value span and round-trips untouched.
         let line = raw.strip_suffix('\n').unwrap_or(raw);
+        let line = line.strip_suffix('\r').unwrap_or(line);
         let lb = line.as_bytes();
         let trimmed = line.trim_start();
 
@@ -135,12 +140,24 @@ fn entries(content: &str) -> Result<Vec<Entry>, String> {
 
         let ind = indent_of(lb)?;
 
-        // sequence item: the enclosing key holds a list — mark it non-settable.
+        // Inside a sequence: its items (and their nested content) are not
+        // addressable as mapping paths, so skip everything at the item indent or
+        // deeper. A shallower line ends the sequence.
+        if let Some(s) = seq_skip {
+            if ind >= s {
+                offset += line_len;
+                continue;
+            }
+            seq_skip = None;
+        }
+
+        // sequence item: the enclosing key holds a list — mark it non-settable
+        // and skip the whole sequence subtree from here.
         if trimmed == "-" || trimmed.starts_with("- ") {
             if let Some(last) = out.last_mut() {
-                // the most recent parent key (empty value) owns this sequence
                 last.settable = false;
             }
+            seq_skip = Some(ind);
             offset += line_len;
             continue;
         }
@@ -356,5 +373,24 @@ greeting: \"hello world\"
     #[test]
     fn missing_set_is_none() {
         assert_eq!(set(Y, "ghost", "1").unwrap(), None);
+    }
+
+    #[test]
+    fn crlf_round_trips() {
+        let crlf = "a: 1\r\nb: 2\r\n";
+        // only the value changes; both lines keep their CRLF
+        assert_eq!(set(crlf, "a", "5").unwrap().unwrap(), "a: 5\r\nb: 2\r\n");
+        // get must not leak the \r
+        assert_eq!(get("a: hello\r\n", "a").unwrap().as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn sequence_contents_not_addressable() {
+        // `image:` lives inside a `- ` list item, so it must NOT resolve as a path
+        let m = "containers:\n  - name: web\n    image: nginx\nport: 80\n";
+        assert_eq!(get(m, "containers.image").unwrap(), None);
+        assert_eq!(get(m, "containers.name").unwrap(), None);
+        // a sibling key after the sequence is still addressable
+        assert_eq!(get(m, "port").unwrap().as_deref(), Some("80"));
     }
 }
