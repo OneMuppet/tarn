@@ -51,6 +51,7 @@ tarn check src/server.rs             # 6. verify you left no junk
 | Read/set TOML config | `tarn toml get\|set <file> <path> [value]` |
 | Read/set YAML config | `tarn yaml get\|set <file> <path> [value]` |
 | Hygiene gate | `tarn check <file>` |
+| Diff two files | `tarn diff <a> <b>` (0 same / 1 differ / 2 error) |
 
 ## Conventions
 

@@ -112,6 +112,13 @@ pub const COMMANDS: &[Cmd] = &[
         examples: &["tarn yaml get deploy.yaml spec.replicas", "tarn yaml set ci.yml jobs.build.timeout-minutes 30"],
     },
     Cmd {
+        name: "diff",
+        group: "verify",
+        usage: "tarn diff <a> <b> [--plain|--color]",
+        summary: "Show how file <a> differs from file <b> (line-numbered). Exit 0 identical, 1 differ, 2 trouble.",
+        examples: &["tarn diff expected.txt actual.txt"],
+    },
+    Cmd {
         name: "check",
         group: "verify",
         usage: "tarn check <file> [--json]",
@@ -223,7 +230,8 @@ mod tests {
         // Keep this list in sync with the dispatcher in main.rs::run.
         for name in [
             "outline", "find", "peek", "show", "replace", "insert", "delete", "write",
-            "apply", "rename", "json", "toml", "yaml", "check", "get", "set", "unset", "keys", "view",
+            "apply", "rename", "json", "toml", "yaml", "check", "diff", "get", "set", "unset",
+            "keys", "view",
         ] {
             assert!(find_cmd(name).is_some(), "manifest missing command: {name}");
         }

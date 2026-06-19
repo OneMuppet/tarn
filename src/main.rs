@@ -88,6 +88,7 @@ fn run(args: &[String]) -> u8 {
         "peek" => cmd_peek(&args[1..]),
         "find" => cmd_find(&args[1..]),
         "check" => cmd_check(&args[1..]),
+        "diff" => cmd_diff(&args[1..]),
         "replace" => cmd_replace(&args[1..]),
         "insert" => cmd_insert(&args[1..]),
         "delete" | "del" => cmd_delete(&args[1..]),
@@ -739,6 +740,30 @@ fn yaml_set(args: &[String]) -> u8 {
             EXIT_USAGE
         }
     }
+}
+
+/// `diff <a> <b> [--plain|--color]` — show how file `a` differs from file `b`.
+/// POSIX-ish exit: 0 identical, 1 differ, 2 trouble (unreadable).
+fn cmd_diff(args: &[String]) -> u8 {
+    let color_pref = color_flag(args);
+    let pos: Vec<&str> = args.iter().map(|s| s.as_str()).filter(|s| !s.starts_with('-')).collect();
+    let (a, b) = match (pos.first(), pos.get(1)) {
+        (Some(a), Some(b)) => (*a, *b),
+        _ => return usage_err("diff <a> <b>"),
+    };
+    let (ca, cb) = match (fs::read_to_string(a), fs::read_to_string(b)) {
+        (Ok(ca), Ok(cb)) => (ca, cb),
+        _ => {
+            eprintln!("tarn: cannot read {a} or {b}");
+            return EXIT_USAGE; // 2 = trouble
+        }
+    };
+    if ca == cb {
+        return EXIT_OK; // identical
+    }
+    print!("{}", render::diff(&ca, &cb, color_pref.unwrap_or_else(use_color)));
+    let _ = io::stdout().flush();
+    EXIT_NOT_FOUND // 1 = differences found (POSIX diff convention)
 }
 
 /// `check <file> [--json] [--plain|--color]` — fast file-hygiene gate.
@@ -1608,6 +1633,7 @@ USAGE:
         -C/-B/-A N  context lines (around / before / after each hit)
         --  <text>  search a pattern that starts with a dash
     tarn check   <file>         file-hygiene gate (0 clean / 1 issues)  [--json]
+    tarn diff    <a> <b>        show how file a differs from b (0 same/1 differ)
 
   documents (non-interactive — for scripts & AI harnesses):
     tarn show    <file>         editor-style snapshot to stdout
