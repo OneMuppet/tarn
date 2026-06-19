@@ -12,6 +12,13 @@ keywords = ["cli", "editor", "agents", "grep", "diff"]
 categories = ["command-line-utilities", "text-editors", "development-tools"]
 exclude = ["assets/_gen.py", ".github/"]
 
+# The command is always `tarn`, even if the crates.io *package* must be named
+# differently (the name `tarn` is taken there) — so a future rename of the
+# package won't change the installed binary's name.
+[[bin]]
+name = "tarn"
+path = "src/main.rs"
+
 # Zero dependencies on purpose. std only; raw mode is done by shelling out to
 # `stty`, which is always present. This is the deliberate "small + readable" choice.
 [dependencies]
