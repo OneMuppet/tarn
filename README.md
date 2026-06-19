@@ -63,10 +63,17 @@ exit-code/`--json` conventions.
 ## Install
 
 ```sh
-cargo build --release
-# binary at ./target/release/tarn  — copy it onto your PATH
+cargo install --path .      # builds + installs `tarn` to ~/.cargo/bin
+```
+
+Or build and place it yourself:
+
+```sh
+cargo build --release       # binary at ./target/release/tarn
 cp target/release/tarn ~/.local/bin/
 ```
+
+Needs only a Rust toolchain — no other dependencies.
 
 ## The editor
 
