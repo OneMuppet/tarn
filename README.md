@@ -11,9 +11,13 @@
 ```
 
 **tarn** is a tiny terminal text editor you can actually understand — no modes, no
-manual, the help is always on screen. It's also a scriptable `.env` tool, so an AI
-harness (or a shell script) can read and edit key=value files deterministically
-without ever driving a TUI.
+manual, the help is always on screen. It's also a fast, **structural command-line
+toolkit built for AI agents**: map a codebase (`outline`), search it with the
+enclosing definition of every hit (`find`), read one function by name (`peek`),
+edit it surgically with guards (`replace --expect`, `apply`), refactor
+(`rename`), patch config without reflowing it (`json`), and check your work
+(`check`) — all deterministic, `--json`-chainable, and quicker than the system
+grep. Still zero dependencies.
 
 > _The name comes from **tarnish** — the slow aging of metal. Polished copper
 > tarnishes and, given time, becomes a **patina**; tarn is the small, sharp sibling
@@ -24,8 +28,11 @@ without ever driving a TUI.
   `stty` (always present) instead of pulling in a terminal crate.
 - **Readable on purpose.** A few small, commented modules — grok the whole thing
   in one sitting.
-- **Two modes, one binary.** A human gets a friendly editor; a harness gets a
-  precise key=value CLI with meaningful exit codes.
+- **An editor for humans, a toolkit for agents.** A real full-screen TUI when you
+  open a file in a terminal; a precise, scriptable CLI — navigate, edit, refactor,
+  verify — everywhere else, with meaningful exit codes and `--json` output.
+- **Fast on purpose.** Zero-allocation search, one structure-parse per file,
+  binary-skipping — `find` beats the system grep with identical results.
 
 <div align="center">
 <br>
