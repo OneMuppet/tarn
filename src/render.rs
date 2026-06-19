@@ -351,22 +351,64 @@ pub fn outline_view(path: &str, defs: &[Def], color: bool) -> String {
     out
 }
 
+fn def_json(d: &Def) -> String {
+    format!(
+        "{{\"line\":{},\"end\":{},\"kind\":{},\"name\":{},\"depth\":{}}}",
+        d.line,
+        d.end,
+        jstr(&d.kind),
+        jstr(&d.name),
+        d.depth
+    )
+}
+
 /// Machine-readable outline.
 pub fn outline_json(path: &str, defs: &[Def]) -> String {
-    let items: Vec<String> = defs
+    let items: Vec<String> = defs.iter().map(def_json).collect();
+    format!("{{\"path\":{},\"defs\":[{}]}}\n", jstr(path), items.join(","))
+}
+
+/// Human-readable structural map of a whole directory (one pass, grouped by file).
+pub fn outline_dir_view(root: &str, files: &[(String, Vec<Def>)], total: usize, color: bool) -> String {
+    let mut out = String::new();
+    let head = format!("┌─ map: {root} ─ {total} defs in {} files ", files.len());
+    out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(16))));
+    out.push('\n');
+    let gw = files
         .iter()
-        .map(|d| {
-            format!(
-                "{{\"line\":{},\"end\":{},\"kind\":{},\"name\":{},\"depth\":{}}}",
-                d.line,
-                d.end,
-                jstr(&d.kind),
-                jstr(&d.name),
-                d.depth
-            )
+        .flat_map(|(_, d)| d.iter())
+        .map(|d| d.line)
+        .max()
+        .unwrap_or(1)
+        .to_string()
+        .len()
+        .max(2);
+    for (file, defs) in files {
+        out.push_str(&paint(color, &format!("{COPPER}{BOLD}"), file));
+        out.push('\n');
+        for d in defs {
+            let num = paint(color, DIM, &format!("{:>w$}", d.line, w = gw));
+            let sep = paint(color, DIM, "│");
+            let indent = "  ".repeat(d.depth);
+            let kind = paint(color, DIM, &format!("{} ", d.kind));
+            out.push_str(&format!("{num} {sep} {indent}{kind}{}\n", d.name));
+        }
+    }
+    out.push_str(&paint(color, COPPER, &format!("└{}", "─".repeat(48))));
+    out.push('\n');
+    out
+}
+
+/// Machine-readable directory map.
+pub fn outline_dir_json(root: &str, files: &[(String, Vec<Def>)]) -> String {
+    let groups: Vec<String> = files
+        .iter()
+        .map(|(f, defs)| {
+            let items: Vec<String> = defs.iter().map(def_json).collect();
+            format!("{{\"file\":{},\"defs\":[{}]}}", jstr(f), items.join(","))
         })
         .collect();
-    format!("{{\"path\":{},\"defs\":[{}]}}\n", jstr(path), items.join(","))
+    format!("{{\"root\":{},\"files\":[{}]}}\n", jstr(root), groups.join(","))
 }
 
 // --- find ---------------------------------------------------------------------

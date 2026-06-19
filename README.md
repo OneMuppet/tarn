@@ -76,6 +76,7 @@ two give you structure cheaply — see the shape, then jump to the part you need
 
 ```sh
 tarn outline app.py            # a map of defs / classes / headings + line ranges
+tarn outline src/ --depth 0    # a whole-REPO map (recursive, one pass), top-level only
 tarn peek   app.py do_GET      # show JUST one definition, by name (no line counting)
 tarn show   app.py --block 27  # show the whole def at line 27 (any body line works)
 tarn find   app.py 'send_'     # literal search; each hit with its line number
@@ -117,12 +118,17 @@ $ tarn outline server.py
  11 │ def main             (11–14)
 ```
 
+`outline` also takes a **directory** (`tarn outline src/`): it maps every file in
+one recursive pass, grouped by file — orient in an unfamiliar codebase without
+opening a thing. `--depth N` limits nesting (`--depth 0` = top-level only).
+
 Structure is **heuristic, not semantic** — tarn has no language parser (zero
 deps). It uses extension-aware keyword patterns (`def`/`class`/`fn`/`func`/
-`function`/`struct`/… and Markdown `#` headings) plus indentation for extent.
-That nails the common case; a function with a multi-line signature may report a
-slightly short end range. `find` is literal substring (`-i` for case-insensitive),
-not regex. Both take `--json` so results chain straight into `show`/edits.
+`function`/`struct`/… and Markdown `#` headings); nesting depth comes from
+indentation/heading level, and a def's extent from indentation. That nails the
+common case; a def whose body holds an unindented multi-line string may report a
+short end range. `find` is literal substring (`-i` = ASCII case-insensitive),
+not regex. Everything takes `--json` so results chain into `show`/edits.
 
 ## Opening & editing documents (for AI harnesses)
 

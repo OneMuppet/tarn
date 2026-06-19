@@ -156,25 +156,27 @@ pub fn outline(path: &str, content: &str) -> Vec<Def> {
     let rules = rules_for(path);
     let lines: Vec<&str> = content.lines().collect();
 
-    // First pass: candidate definition lines.
-    let mut raw: Vec<(usize, String, String, usize)> = Vec::new(); // (idx, kind, name, md_level)
+    // First pass: candidate definition lines. `rank` drives nesting: a heading's
+    // level, or (for code) the line's indentation.
+    let mut raw: Vec<(usize, String, String, usize, usize)> = Vec::new(); // (idx,kind,name,level,rank)
     for (idx, line) in lines.iter().enumerate() {
         if let Some((kind, name)) = detect(line, &rules) {
             let level = kind
                 .strip_prefix('h')
                 .and_then(|n| n.parse::<usize>().ok())
                 .unwrap_or(0);
-            raw.push((idx, kind, name, level));
+            let rank = if level > 0 { level } else { indent(line) };
+            raw.push((idx, kind, name, level, rank));
         }
     }
 
     // Second pass: compute end ranges.
     let mut defs: Vec<Def> = Vec::new();
-    for (k, (idx, kind, name, level)) in raw.iter().enumerate() {
+    for (k, (idx, kind, name, level, _rank)) in raw.iter().enumerate() {
         let end = if *level > 0 {
             // Markdown: until the next heading of the same or higher level.
             let mut e = lines.len().saturating_sub(1);
-            for (nidx, _, _, nlevel) in raw.iter().skip(k + 1) {
+            for (nidx, _, _, nlevel, _) in raw.iter().skip(k + 1) {
                 if *nlevel > 0 && *nlevel <= *level {
                     e = nidx.saturating_sub(1);
                     break;
@@ -193,15 +195,16 @@ pub fn outline(path: &str, content: &str) -> Vec<Def> {
         });
     }
 
-    // Third pass: nesting depth by containment.
-    for i in 0..defs.len() {
-        let here = defs[i].line;
-        let depth = defs
-            .iter()
-            .enumerate()
-            .filter(|(j, d)| *j != i && d.line < here && d.end >= here)
-            .count();
-        defs[i].depth = depth;
+    // Third pass: nesting depth via an indentation/level stack. This is robust to
+    // a truncated end range (e.g. a def whose body holds an unindented multi-line
+    // string), which range-containment depth would get wrong.
+    let mut stack: Vec<usize> = Vec::new();
+    for (i, (_, _, _, _, rank)) in raw.iter().enumerate() {
+        while matches!(stack.last(), Some(&top) if top >= *rank) {
+            stack.pop();
+        }
+        defs[i].depth = stack.len();
+        stack.push(*rank);
     }
     defs
 }

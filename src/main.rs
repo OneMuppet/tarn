@@ -348,27 +348,93 @@ fn cmd_show(args: &[String]) -> u8 {
     EXIT_OK
 }
 
-/// `outline <file> [--json] [--plain|--color]` — a structural map of the file.
+/// `outline <path> [--depth N] [--json] [--plain|--color]` — a structural map of
+/// a file, or of a whole directory (recursive, one pass), grouped by file.
 fn cmd_outline(args: &[String]) -> u8 {
-    let json = args.iter().any(|a| a == "--json");
-    let color_pref = color_flag(args);
-    let file = match args.iter().find(|a| !a.starts_with('-')) {
-        Some(f) => f.as_str(),
-        None => return usage_err("outline <file> [--json]"),
+    let mut path: Option<&str> = None;
+    let mut json = false;
+    let mut color_pref: Option<bool> = None;
+    let mut depth: Option<usize> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" => json = true,
+            "--plain" => color_pref = Some(false),
+            "--color" => color_pref = Some(true),
+            "--depth" => match next_usize(args, &mut i) {
+                Some(d) => depth = Some(d),
+                None => return usage_err("outline <path> --depth N"),
+            },
+            s if !s.starts_with('-') => {
+                if path.is_none() {
+                    path = Some(s);
+                }
+            }
+            other => {
+                eprintln!("tarn: unknown flag {other}");
+                return EXIT_USAGE;
+            }
+        }
+        i += 1;
+    }
+    let path = match path {
+        Some(p) => p,
+        None => return usage_err("outline <path> [--depth N] [--json]"),
     };
-    let content = match fs::read_to_string(file) {
-        Ok(c) => c,
-        Err(_) => {
-            eprintln!("tarn: cannot read {file}");
-            return EXIT_NOT_FOUND;
+    let keep = |defs: Vec<structure::Def>| -> Vec<structure::Def> {
+        match depth {
+            Some(d) => defs.into_iter().filter(|x| x.depth <= d).collect(),
+            None => defs,
         }
     };
-    let defs = structure::outline(file, &content);
-    let name = base_name(file);
-    if json {
-        print!("{}", render::outline_json(&name, &defs));
+    let color = color_pref.unwrap_or_else(use_color);
+
+    if PathBuf::from(path).is_dir() {
+        let mut per_file: Vec<(String, Vec<structure::Def>)> = Vec::new();
+        let mut total = 0usize;
+        for f in collect_files(path) {
+            let bytes = match fs::read(&f) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            if bytes.iter().take(8192).any(|&b| b == 0) {
+                continue;
+            }
+            let content = match std::str::from_utf8(&bytes) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let fname = f.to_string_lossy().to_string();
+            let defs = keep(structure::outline(&fname, content));
+            if !defs.is_empty() {
+                total += defs.len();
+                per_file.push((fname, defs));
+            }
+        }
+        if per_file.is_empty() {
+            eprintln!("tarn: no definitions found under {path}");
+            return EXIT_NOT_FOUND;
+        }
+        if json {
+            print!("{}", render::outline_dir_json(path, &per_file));
+        } else {
+            print!("{}", render::outline_dir_view(path, &per_file, total, color));
+        }
     } else {
-        print!("{}", render::outline_view(&name, &defs, color_pref.unwrap_or_else(use_color)));
+        let content = match fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => {
+                eprintln!("tarn: cannot read {path}");
+                return EXIT_NOT_FOUND;
+            }
+        };
+        let defs = keep(structure::outline(path, &content));
+        let name = base_name(path);
+        if json {
+            print!("{}", render::outline_json(&name, &defs));
+        } else {
+            print!("{}", render::outline_view(&name, &defs, color));
+        }
     }
     let _ = io::stdout().flush();
     EXIT_OK
@@ -731,8 +797,9 @@ fn cmd_find(args: &[String]) -> u8 {
 }
 
 /// Zero-allocation substring search over bytes. `ci` = ASCII case-insensitive.
-/// (A UTF-8 needle matches the same byte sequence; case-folding is ASCII-only,
-/// which is the documented behavior of `-i`.)
+/// A UTF-8 needle matches the same byte sequence; case-folding is ASCII-only
+/// (the documented behavior of `-i`). Callers search line-by-line with the line
+/// terminator stripped, so CRLF is normalized — a literal `\r` won't match.
 fn find_in(hay: &[u8], needle: &[u8], ci: bool) -> bool {
     if needle.is_empty() {
         return true;
@@ -1127,7 +1194,8 @@ USAGE:
     tarn <file>                 open the interactive editor
 
   navigate (structure without reading the whole file):
-    tarn outline <file>         map of defs/classes/headings  [--json]
+    tarn outline <path>         map of defs/classes/headings — file OR dir
+        --depth N (limit nesting)  |  --json
     tarn peek    <file> <name>  show just the definition named <name>  [--json]
     tarn find    <path> <text>  search a file OR directory; hits with file+line
         -i (ignore case) | --enclosing (tag hits w/ their def) | --limit N | --json
