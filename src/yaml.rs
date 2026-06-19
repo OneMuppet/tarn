@@ -188,7 +188,13 @@ fn entries(content: &str) -> Result<Vec<Entry>, String> {
             // empty value → this key opens a nested mapping/sequence
             stack.push((ind, key));
             // record it as a (non-settable) parent so `set` on it errors clearly
-            out.push(Entry { path, vstart: offset + lb.len(), vend: offset + lb.len(), settable: false, is_string: false });
+            out.push(Entry {
+                path,
+                vstart: offset + lb.len(),
+                vend: offset + lb.len(),
+                settable: false,
+                is_string: false,
+            });
         } else {
             let (vend_rel, settable, is_string) = scan_scalar(lb, vs_rel);
             out.push(Entry {
@@ -206,7 +212,8 @@ fn entries(content: &str) -> Result<Vec<Entry>, String> {
 
 fn find<'a>(es: &'a [Entry], path: &str) -> Option<&'a Entry> {
     let want: Vec<&str> = path.split('.').collect();
-    es.iter().find(|e| e.path.len() == want.len() && e.path.iter().zip(&want).all(|(a, b)| a == b))
+    es.iter()
+        .find(|e| e.path.len() == want.len() && e.path.iter().zip(&want).all(|(a, b)| a == b))
 }
 
 fn decode_string(s: &str) -> String {
@@ -251,7 +258,11 @@ pub fn get(content: &str, path: &str) -> Result<Option<String>, String> {
             return None;
         }
         let raw = &content[e.vstart..e.vend];
-        Some(if e.is_string { decode_string(raw) } else { raw.to_string() })
+        Some(if e.is_string {
+            decode_string(raw)
+        } else {
+            raw.to_string()
+        })
     }))
 }
 
@@ -265,7 +276,10 @@ pub fn del(content: &str, path: &str) -> Result<Option<String>, String> {
         None => return Ok(None),
     };
     let ls = content[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let le = content[pos..].find('\n').map(|i| pos + i + 1).unwrap_or(content.len());
+    let le = content[pos..]
+        .find('\n')
+        .map(|i| pos + i + 1)
+        .unwrap_or(content.len());
     Ok(Some(format!("{}{}", &content[..ls], &content[le..])))
 }
 
@@ -280,7 +294,12 @@ pub fn set(content: &str, path: &str, value: &str) -> Result<Option<String>, Str
     if !settable {
         return Err("cannot set a sequence, flow, multiline, or nested value".into());
     }
-    Ok(Some(format!("{}{}{}", &content[..vstart], encode(value), &content[vend..])))
+    Ok(Some(format!(
+        "{}{}{}",
+        &content[..vstart],
+        encode(value),
+        &content[vend..]
+    )))
 }
 
 /// Encode a value for a plain YAML scalar slot, double-quoting whenever a plain
@@ -341,7 +360,10 @@ greeting: \"hello world\"
         assert_eq!(get(Y, "name").unwrap().as_deref(), Some("demo"));
         assert_eq!(get(Y, "port").unwrap().as_deref(), Some("8000"));
         assert_eq!(get(Y, "server.host").unwrap().as_deref(), Some("localhost"));
-        assert_eq!(get(Y, "server.tls.enabled").unwrap().as_deref(), Some("false"));
+        assert_eq!(
+            get(Y, "server.tls.enabled").unwrap().as_deref(),
+            Some("false")
+        );
         assert_eq!(get(Y, "greeting").unwrap().as_deref(), Some("hello world")); // decoded
         assert_eq!(get(Y, "missing").unwrap(), None);
     }
@@ -356,9 +378,18 @@ greeting: \"hello world\"
 
     #[test]
     fn set_scalar_types_and_quoting() {
-        assert!(set(Y, "port", "9090").unwrap().unwrap().contains("port: 9090"));
-        assert!(set(Y, "name", "a: b").unwrap().unwrap().contains("name: \"a: b\""));
-        assert!(set(Y, "name", "plain").unwrap().unwrap().contains("name: plain"));
+        assert!(set(Y, "port", "9090")
+            .unwrap()
+            .unwrap()
+            .contains("port: 9090"));
+        assert!(set(Y, "name", "a: b")
+            .unwrap()
+            .unwrap()
+            .contains("name: \"a: b\""));
+        assert!(set(Y, "name", "plain")
+            .unwrap()
+            .unwrap()
+            .contains("name: plain"));
     }
 
     #[test]

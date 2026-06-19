@@ -229,9 +229,9 @@ mod tests {
     fn manifest_covers_every_dispatched_command() {
         // Keep this list in sync with the dispatcher in main.rs::run.
         for name in [
-            "outline", "find", "peek", "show", "replace", "insert", "delete", "write",
-            "apply", "rename", "json", "toml", "yaml", "check", "diff", "get", "set", "unset",
-            "keys", "view",
+            "outline", "find", "peek", "show", "replace", "insert", "delete", "write", "apply",
+            "rename", "json", "toml", "yaml", "check", "diff", "get", "set", "unset", "keys",
+            "view",
         ] {
             assert!(find_cmd(name).is_some(), "manifest missing command: {name}");
         }

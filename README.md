@@ -2,6 +2,9 @@
 
 ![tarn](assets/banner.svg)
 
+[![CI](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml/badge.svg)](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml)
+&nbsp;zero dependencies&nbsp;·&nbsp;96 tests
+
 </div>
 
 ```

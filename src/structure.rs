@@ -26,11 +26,28 @@ struct Rules {
 fn rules_for(path: &str) -> Rules {
     let ext = path.rsplit('.').next().unwrap_or("").to_lowercase();
     match ext.as_str() {
-        "md" | "markdown" | "mdown" | "mkd" => Rules { markdown: true, keywords: &[], js: false },
-        "py" | "pyi" => Rules { markdown: false, keywords: &["def", "class"], js: false },
+        "md" | "markdown" | "mdown" | "mkd" => Rules {
+            markdown: true,
+            keywords: &[],
+            js: false,
+        },
+        "py" | "pyi" => Rules {
+            markdown: false,
+            keywords: &["def", "class"],
+            js: false,
+        },
         "rs" => Rules {
             markdown: false,
-            keywords: &["fn", "struct", "enum", "trait", "impl", "mod", "type", "macro_rules!"],
+            keywords: &[
+                "fn",
+                "struct",
+                "enum",
+                "trait",
+                "impl",
+                "mod",
+                "type",
+                "macro_rules!",
+            ],
             js: false,
         },
         "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => Rules {
@@ -38,8 +55,16 @@ fn rules_for(path: &str) -> Rules {
             keywords: &["function", "class", "interface", "enum", "type"],
             js: true,
         },
-        "go" => Rules { markdown: false, keywords: &["func", "type"], js: false },
-        "rb" => Rules { markdown: false, keywords: &["def", "class", "module"], js: false },
+        "go" => Rules {
+            markdown: false,
+            keywords: &["func", "type"],
+            js: false,
+        },
+        "rb" => Rules {
+            markdown: false,
+            keywords: &["def", "class", "module"],
+            js: false,
+        },
         "php" => Rules {
             markdown: false,
             keywords: &["function", "class", "interface", "trait", "enum"],
@@ -64,7 +89,14 @@ fn rules_for(path: &str) -> Rules {
         },
         "cs" => Rules {
             markdown: false,
-            keywords: &["class", "interface", "struct", "enum", "namespace", "record"],
+            keywords: &[
+                "class",
+                "interface",
+                "struct",
+                "enum",
+                "namespace",
+                "record",
+            ],
             js: false,
         },
         "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" => Rules {
@@ -75,8 +107,20 @@ fn rules_for(path: &str) -> Rules {
         _ => Rules {
             markdown: false,
             keywords: &[
-                "def", "class", "fn", "func", "function", "struct", "enum", "trait", "impl",
-                "mod", "type", "interface", "namespace", "module",
+                "def",
+                "class",
+                "fn",
+                "func",
+                "function",
+                "struct",
+                "enum",
+                "trait",
+                "impl",
+                "mod",
+                "type",
+                "interface",
+                "namespace",
+                "module",
             ],
             js: false,
         },
@@ -84,9 +128,31 @@ fn rules_for(path: &str) -> Rules {
 }
 
 const MODIFIERS: &[&str] = &[
-    "pub", "export", "default", "async", "static", "public", "private", "protected", "final",
-    "abstract", "open", "override", "suspend", "internal", "sealed", "data", "inline", "partial",
-    "virtual", "readonly", "fileprivate", "companion", "unsafe", "extern", "lateinit",
+    "pub",
+    "export",
+    "default",
+    "async",
+    "static",
+    "public",
+    "private",
+    "protected",
+    "final",
+    "abstract",
+    "open",
+    "override",
+    "suspend",
+    "internal",
+    "sealed",
+    "data",
+    "inline",
+    "partial",
+    "virtual",
+    "readonly",
+    "fileprivate",
+    "companion",
+    "unsafe",
+    "extern",
+    "lateinit",
 ];
 
 fn indent(line: &str) -> usize {
@@ -153,14 +219,18 @@ fn detect(line: &str, rules: &Rules) -> Option<(String, String)> {
     }
 
     for kw in rules.keywords {
-        let matches = t == *kw || t.starts_with(&format!("{kw} ")) || t.starts_with(&format!("{kw}!"));
+        let matches =
+            t == *kw || t.starts_with(&format!("{kw} ")) || t.starts_with(&format!("{kw}!"));
         if matches {
             let mut rest = &t[kw.len()..];
             // `enum class Foo` (Kotlin, C++ scoped enums) / `enum struct Foo`:
             // the real name follows the secondary keyword.
             if *kw == "enum" {
                 let r = rest.trim_start();
-                if let Some(after) = r.strip_prefix("class ").or_else(|| r.strip_prefix("struct ")) {
+                if let Some(after) = r
+                    .strip_prefix("class ")
+                    .or_else(|| r.strip_prefix("struct "))
+                {
                     rest = after;
                 }
             }
@@ -273,7 +343,11 @@ pub fn qualified_in(defs: &[Def], target: usize) -> Option<(String, usize, usize
     chain.sort_by_key(|d| d.line);
     let inner = chain.last()?;
     let (line, end) = (inner.line, inner.end);
-    let name = chain.iter().map(|d| d.name.as_str()).collect::<Vec<_>>().join(".");
+    let name = chain
+        .iter()
+        .map(|d| d.name.as_str())
+        .collect::<Vec<_>>()
+        .join(".");
     Some((name, line, end))
 }
 
@@ -372,10 +446,16 @@ def main():
         };
         let has = |v: &[String], n: &str| v.iter().any(|x| x == n);
         // Kotlin: modifiers stripped, fun/class detected
-        let kt = names("a.kt", "data class User(val n: Int)\n\nsuspend fun fetch() {\n    todo()\n}\n");
+        let kt = names(
+            "a.kt",
+            "data class User(val n: Int)\n\nsuspend fun fetch() {\n    todo()\n}\n",
+        );
         assert!(has(&kt, "User") && has(&kt, "fetch"), "{kt:?}");
         // Swift
-        let sw = names("a.swift", "struct Point {\n    func dist() -> Double { 0 }\n}\n");
+        let sw = names(
+            "a.swift",
+            "struct Point {\n    func dist() -> Double { 0 }\n}\n",
+        );
         assert!(has(&sw, "Point") && has(&sw, "dist"), "{sw:?}");
         // Ruby
         let rb = names("a.rb", "class Cli\n  def run\n  end\nend\n");
@@ -386,7 +466,10 @@ def main():
         // `enum class` (Kotlin always; C++ scoped enums) → name is the enum, not "class X"
         let ke = names("a.kt", "enum class Color { RED, GREEN }\n");
         assert!(has(&ke, "Color") && !has(&ke, "class Color"), "{ke:?}");
-        let ce = names("a.cpp", "enum class Mode { A, B };\nenum struct Flag { X };\n");
+        let ce = names(
+            "a.cpp",
+            "enum class Mode { A, B };\nenum struct Flag { X };\n",
+        );
         assert!(has(&ce, "Mode") && has(&ce, "Flag"), "{ce:?}");
     }
 

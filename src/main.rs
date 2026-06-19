@@ -302,7 +302,9 @@ fn cmd_show(args: &[String]) -> u8 {
 
     let file = match file {
         Some(f) => f,
-        None => return usage_err("show <file> [--lines A-B | --around N | --head | --tail | --all]"),
+        None => {
+            return usage_err("show <file> [--lines A-B | --around N | --head | --tail | --all]")
+        }
     };
     let content = match fs::read_to_string(file) {
         Ok(c) => c,
@@ -344,10 +346,16 @@ fn cmd_show(args: &[String]) -> u8 {
     };
 
     if json {
-        print!("{}", render::show_json(&base_name(file), &content, &win, highlight));
+        print!(
+            "{}",
+            render::show_json(&base_name(file), &content, &win, highlight)
+        );
     } else {
         let color = color_pref.unwrap_or_else(use_color);
-        print!("{}", render::show(&base_name(file), &content, &win, highlight, color));
+        print!(
+            "{}",
+            render::show(&base_name(file), &content, &win, highlight, color)
+        );
     }
     let _ = io::stdout().flush();
     EXIT_OK
@@ -423,7 +431,10 @@ fn cmd_outline(args: &[String]) -> u8 {
         if json {
             print!("{}", render::outline_dir_json(path, &per_file));
         } else {
-            print!("{}", render::outline_dir_view(path, &per_file, total, color));
+            print!(
+                "{}",
+                render::outline_dir_view(path, &per_file, total, color)
+            );
         }
     } else {
         let content = match fs::read_to_string(path) {
@@ -482,7 +493,11 @@ fn cmd_rename(args: &[String]) -> u8 {
     let word = !substring;
     let (path, old, new) = match (pos.first(), pos.get(1), pos.get(2)) {
         (Some(p), Some(o), Some(n)) => (*p, *o, *n),
-        _ => return usage_err("rename <path> <old> <new> [--in <def>] [--substring] [--dry-run] [--json]"),
+        _ => {
+            return usage_err(
+                "rename <path> <old> <new> [--in <def>] [--substring] [--dry-run] [--json]",
+            )
+        }
     };
     if old.is_empty() {
         return usage_err("rename: <old> must not be empty");
@@ -512,7 +527,10 @@ fn cmd_rename(args: &[String]) -> u8 {
             {
                 Some((a, b)) => {
                     let (slice, count) = textfile::rename(&content[a..b], old, new, word);
-                    (format!("{}{}{}", &content[..a], slice, &content[b..]), count)
+                    (
+                        format!("{}{}{}", &content[..a], slice, &content[b..]),
+                        count,
+                    )
                 }
                 None => continue, // def not in this file
             }
@@ -541,20 +559,35 @@ fn cmd_rename(args: &[String]) -> u8 {
 
     let color = color_pref.unwrap_or_else(use_color);
     if json {
-        let summary: Vec<(String, usize)> = changes.iter().map(|(f, _, _, c)| (f.clone(), *c)).collect();
-        print!("{}", render::rename_json(old, new, &summary, total, word, dry_run));
+        let summary: Vec<(String, usize)> =
+            changes.iter().map(|(f, _, _, c)| (f.clone(), *c)).collect();
+        print!(
+            "{}",
+            render::rename_json(old, new, &summary, total, word, dry_run)
+        );
     } else if diff {
         let multi = changes.len() > 1;
         for (f, old_c, new_c, _) in &changes {
             if multi {
                 let header = format!("── {f} ──");
-                print!("{}", if color { format!("\x1b[38;2;199;117;46m{header}\x1b[0m\n") } else { format!("{header}\n") });
+                print!(
+                    "{}",
+                    if color {
+                        format!("\x1b[38;2;199;117;46m{header}\x1b[0m\n")
+                    } else {
+                        format!("{header}\n")
+                    }
+                );
             }
             print!("{}", render::diff(old_c, new_c, color));
         }
     } else {
-        let summary: Vec<(String, usize)> = changes.iter().map(|(f, _, _, c)| (f.clone(), *c)).collect();
-        print!("{}", render::rename_view(old, new, &summary, total, word, dry_run, color));
+        let summary: Vec<(String, usize)> =
+            changes.iter().map(|(f, _, _, c)| (f.clone(), *c)).collect();
+        print!(
+            "{}",
+            render::rename_view(old, new, &summary, total, word, dry_run, color)
+        );
     }
     let _ = io::stdout().flush();
     EXIT_OK
@@ -825,7 +858,11 @@ fn yaml_set(args: &[String]) -> u8 {
 /// POSIX-ish exit: 0 identical, 1 differ, 2 trouble (unreadable).
 fn cmd_diff(args: &[String]) -> u8 {
     let color_pref = color_flag(args);
-    let pos: Vec<&str> = args.iter().map(|s| s.as_str()).filter(|s| !s.starts_with('-')).collect();
+    let pos: Vec<&str> = args
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|s| !s.starts_with('-'))
+        .collect();
     let (a, b) = match (pos.first(), pos.get(1)) {
         (Some(a), Some(b)) => (*a, *b),
         _ => return usage_err("diff <a> <b>"),
@@ -840,7 +877,10 @@ fn cmd_diff(args: &[String]) -> u8 {
     if ca == cb {
         return EXIT_OK; // identical
     }
-    print!("{}", render::diff(&ca, &cb, color_pref.unwrap_or_else(use_color)));
+    print!(
+        "{}",
+        render::diff(&ca, &cb, color_pref.unwrap_or_else(use_color))
+    );
     let _ = io::stdout().flush();
     EXIT_NOT_FOUND // 1 = differences found (POSIX diff convention)
 }
@@ -866,7 +906,10 @@ fn cmd_check(args: &[String]) -> u8 {
     if json {
         print!("{}", render::check_json(&name, &issues));
     } else {
-        print!("{}", render::check_view(&name, &issues, color_pref.unwrap_or_else(use_color)));
+        print!(
+            "{}",
+            render::check_view(&name, &issues, color_pref.unwrap_or_else(use_color))
+        );
     }
     let _ = io::stdout().flush();
     if issues.is_empty() {
@@ -881,7 +924,11 @@ fn cmd_check(args: &[String]) -> u8 {
 fn cmd_peek(args: &[String]) -> u8 {
     let json = args.iter().any(|a| a == "--json");
     let color_pref = color_flag(args);
-    let positional: Vec<&str> = args.iter().map(|s| s.as_str()).filter(|s| !s.starts_with("--")).collect();
+    let positional: Vec<&str> = args
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|s| !s.starts_with("--"))
+        .collect();
     let (file, name) = match (positional.first(), positional.get(1)) {
         (Some(f), Some(n)) => (*f, *n),
         _ => return usage_err("peek <file> <name> [--json]"),
@@ -906,7 +953,16 @@ fn cmd_peek(args: &[String]) -> u8 {
     if json {
         print!("{}", render::show_json(&base, &content, &win, hl));
     } else {
-        print!("{}", render::show(&base, &content, &win, hl, color_pref.unwrap_or_else(use_color)));
+        print!(
+            "{}",
+            render::show(
+                &base,
+                &content,
+                &win,
+                hl,
+                color_pref.unwrap_or_else(use_color)
+            )
+        );
     }
     let _ = io::stdout().flush();
     EXIT_OK
@@ -972,7 +1028,13 @@ fn cmd_find(args: &[String]) -> u8 {
                 "--ext" | "-t" => {
                     i += 1;
                     match args.get(i) {
-                        Some(v) => exts = v.split(',').map(|e| e.trim().trim_start_matches('.').to_lowercase()).filter(|e| !e.is_empty()).collect(),
+                        Some(v) => {
+                            exts = v
+                                .split(',')
+                                .map(|e| e.trim().trim_start_matches('.').to_lowercase())
+                                .filter(|e| !e.is_empty())
+                                .collect()
+                        }
                         None => return usage_err("find <dir> <pattern> --ext rs,toml"),
                     }
                 }
@@ -1006,7 +1068,10 @@ fn cmd_find(args: &[String]) -> u8 {
     if !exts.is_empty() {
         files.retain(|f| {
             f.extension()
-                .map(|e| exts.iter().any(|x| x == &e.to_string_lossy().to_lowercase()))
+                .map(|e| {
+                    exts.iter()
+                        .any(|x| x == &e.to_string_lossy().to_lowercase())
+                })
                 .unwrap_or(false)
         });
     }
@@ -1060,12 +1125,16 @@ fn cmd_find(args: &[String]) -> u8 {
                 break; // one hit is enough to name the file
             }
             if !count_only && matches.len() < limit {
-                let scope = defs.as_ref().and_then(|d| structure::qualified_in(d, idx + 1));
+                let scope = defs
+                    .as_ref()
+                    .and_then(|d| structure::qualified_in(d, idx + 1));
                 let (before, after) = if want_ctx {
                     let (lo, hi) = context_bounds(lines.len(), idx, ctx_before, ctx_after);
                     (
                         (lo..idx).map(|j| (j + 1, lines[j].to_string())).collect(),
-                        ((idx + 1)..hi).map(|j| (j + 1, lines[j].to_string())).collect(),
+                        ((idx + 1)..hi)
+                            .map(|j| (j + 1, lines[j].to_string()))
+                            .collect(),
                     )
                 } else {
                     (Vec::new(), Vec::new())
@@ -1095,7 +1164,11 @@ fn cmd_find(args: &[String]) -> u8 {
     // -c / --count: just the number.
     if count_only {
         if json {
-            println!("{{\"pattern\":{},\"total\":{}}}", render::jstr(pattern), total);
+            println!(
+                "{{\"pattern\":{},\"total\":{}}}",
+                render::jstr(pattern),
+                total
+            );
         } else {
             println!("{total}");
         }
@@ -1105,7 +1178,11 @@ fn cmd_find(args: &[String]) -> u8 {
     if files_only {
         if json {
             let items: Vec<String> = matched_files.iter().map(|f| render::jstr(f)).collect();
-            println!("{{\"pattern\":{},\"files\":[{}]}}", render::jstr(pattern), items.join(","));
+            println!(
+                "{{\"pattern\":{},\"files\":[{}]}}",
+                render::jstr(pattern),
+                items.join(",")
+            );
         } else {
             for f in &matched_files {
                 println!("{f}");
@@ -1119,7 +1196,10 @@ fn cmd_find(args: &[String]) -> u8 {
     } else {
         let color = color_pref.unwrap_or_else(use_color);
         let shown_files = if multi { hit_files } else { 1 };
-        print!("{}", render::find_view(pattern, &matches, shown_files, color));
+        print!(
+            "{}",
+            render::find_view(pattern, &matches, shown_files, color)
+        );
         if total > matches.len() {
             println!("… {} more match(es) (raise --limit)", total - matches.len());
         }
@@ -1151,7 +1231,11 @@ fn line_byte_span(content: &str, start: usize, end: usize) -> Option<(usize, usi
         return None;
     }
     let a = starts[start - 1];
-    let b = if end < starts.len() { starts[end] } else { content.len() };
+    let b = if end < starts.len() {
+        starts[end]
+    } else {
+        content.len()
+    };
     Some((a, b))
 }
 
@@ -1167,7 +1251,13 @@ fn find_in(hay: &[u8], needle: &[u8], ci: bool, word: bool) -> bool {
     if needle.len() > hay.len() {
         return false;
     }
-    let eq = |a: u8, b: u8| if ci { a.eq_ignore_ascii_case(&b) } else { a == b };
+    let eq = |a: u8, b: u8| {
+        if ci {
+            a.eq_ignore_ascii_case(&b)
+        } else {
+            a == b
+        }
+    };
     let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
     let n0 = needle[0];
     'outer: for i in 0..=hay.len() - needle.len() {
@@ -1212,12 +1302,18 @@ fn walk(dir: &PathBuf, out: &mut Vec<PathBuf>) {
     let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
     paths.sort(); // deterministic output
     for path in paths {
-        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         if name.starts_with('.') {
             continue; // .git, .venv, dotfiles
         }
         // Don't follow symlinks — avoids loops and duplicate hits.
-        if fs::symlink_metadata(&path).map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+        if fs::symlink_metadata(&path)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
             continue;
         }
         if path.is_dir() {
@@ -1271,7 +1367,9 @@ fn cmd_replace(args: &[String]) -> u8 {
     let (file, n, text) = match (flags.rest.first(), flags.rest.get(1), flags.rest.get(2)) {
         (Some(f), Some(n), Some(t)) => match n.parse::<usize>() {
             Ok(n) => (f.as_str(), n, t.as_str()),
-            Err(_) => return usage_err("replace <file> <N> <text>   (or: --match <anchor> <new-line>)"),
+            Err(_) => {
+                return usage_err("replace <file> <N> <text>   (or: --match <anchor> <new-line>)")
+            }
         },
         _ => return usage_err("replace <file> <N> <text>   (or: --match <anchor> <new-line>)"),
     };
@@ -1291,7 +1389,9 @@ fn cmd_insert(args: &[String]) -> u8 {
     let (file, after, text) = match (flags.rest.first(), flags.rest.get(1), flags.rest.get(2)) {
         (Some(f), Some(n), Some(t)) => match n.parse::<usize>() {
             Ok(n) => (f.as_str(), n, t.as_str()),
-            Err(_) => return usage_err("insert <file> <after-N> <text> [--diff|--json] [--dry-run]"),
+            Err(_) => {
+                return usage_err("insert <file> <after-N> <text> [--diff|--json] [--dry-run]")
+            }
         },
         _ => return usage_err("insert <file> <after-N> <text> [--diff|--json] [--dry-run]"),
     };
@@ -1409,7 +1509,11 @@ fn cmd_apply(args: &[String]) -> u8 {
         match textfile::apply_ops(&old, ops) {
             Ok(new) => changes.push((path.clone(), old, new)),
             Err(e) => {
-                let code = if e.starts_with("expect failed") { EXIT_GUARD } else { EXIT_USAGE };
+                let code = if e.starts_with("expect failed") {
+                    EXIT_GUARD
+                } else {
+                    EXIT_USAGE
+                };
                 eprintln!("tarn: {path}: {e}");
                 return code;
             }
@@ -1459,7 +1563,14 @@ fn cmd_apply(args: &[String]) -> u8 {
         for (path, old, new) in &changes {
             if multi {
                 let header = format!("── {path} ──");
-                print!("{}", if flags.color { format!("\x1b[38;2;199;117;46m{header}\x1b[0m\n") } else { format!("{header}\n") });
+                print!(
+                    "{}",
+                    if flags.color {
+                        format!("\x1b[38;2;199;117;46m{header}\x1b[0m\n")
+                    } else {
+                        format!("{header}\n")
+                    }
+                );
             }
             print!("{}", render::diff(old, new, flags.color));
         }
@@ -1564,7 +1675,13 @@ fn commit(file: &str, op: &str, flags: &EditFlags, old: &str, new: &str) -> u8 {
     if flags.json {
         print!(
             "{}",
-            render::edit_json(file, op, old.lines().count(), new.lines().count(), flags.dry_run)
+            render::edit_json(
+                file,
+                op,
+                old.lines().count(),
+                new.lines().count(),
+                flags.dry_run
+            )
         );
     } else if flags.diff || flags.dry_run {
         // A dry-run with no explicit output still previews via diff.

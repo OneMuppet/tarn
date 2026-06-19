@@ -39,8 +39,7 @@ impl Editor {
     pub fn open(path: PathBuf) -> io::Result<Editor> {
         let rows = match fs::read_to_string(&path) {
             Ok(text) => {
-                let mut rows: Vec<Vec<char>> =
-                    text.lines().map(|l| l.chars().collect()).collect();
+                let mut rows: Vec<Vec<char>> = text.lines().map(|l| l.chars().collect()).collect();
                 if rows.is_empty() {
                     rows.push(Vec::new());
                 }

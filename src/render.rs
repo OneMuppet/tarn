@@ -12,7 +12,7 @@ use crate::textfile::Issue;
 // --- brand palette (truecolor) ----------------------------------------------
 const COPPER: &str = "\x1b[38;2;199;117;46m";
 const MINT: &str = "\x1b[38;2;127;209;176m"; // additions
-const RUST: &str = "\x1b[38;2;205;110;90m";  // removals
+const RUST: &str = "\x1b[38;2;205;110;90m"; // removals
 const DIM: &str = "\x1b[2m";
 const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[0m";
@@ -202,10 +202,7 @@ pub fn diff(old: &str, new: &str, color: bool) -> String {
     }
 
     const CONTEXT: usize = 3;
-    let changed: Vec<bool> = ops
-        .iter()
-        .map(|o| !matches!(o, Op::Eq(_)))
-        .collect();
+    let changed: Vec<bool> = ops.iter().map(|o| !matches!(o, Op::Eq(_))).collect();
     if !changed.iter().any(|c| *c) {
         return paint(color, DIM, "(no changes)") + "\n";
     }
@@ -319,10 +316,19 @@ pub fn apply_json(files: &[(String, usize, usize)], dry_run: bool) -> String {
     let items: Vec<String> = files
         .iter()
         .map(|(p, before, after)| {
-            format!("{{\"file\":{},\"before\":{},\"after\":{}}}", jstr(p), before, after)
+            format!(
+                "{{\"file\":{},\"before\":{},\"after\":{}}}",
+                jstr(p),
+                before,
+                after
+            )
         })
         .collect();
-    format!("{{\"op\":\"apply\",\"dry_run\":{},\"files\":[{}]}}\n", dry_run, items.join(","))
+    format!(
+        "{{\"op\":\"apply\",\"dry_run\":{},\"files\":[{}]}}\n",
+        dry_run,
+        items.join(",")
+    )
 }
 
 /// Machine-readable result of an edit.
@@ -348,7 +354,14 @@ pub fn outline_view(path: &str, defs: &[Def], color: bool) -> String {
         out.push_str(&paint(color, DIM, "│  (no definitions found)"));
         out.push('\n');
     }
-    let gw = defs.iter().map(|d| d.line).max().unwrap_or(1).to_string().len().max(2);
+    let gw = defs
+        .iter()
+        .map(|d| d.line)
+        .max()
+        .unwrap_or(1)
+        .to_string()
+        .len()
+        .max(2);
     for d in defs {
         let num = paint(color, DIM, &format!("{:>w$}", d.line, w = gw));
         let sep = paint(color, DIM, "│");
@@ -376,11 +389,20 @@ fn def_json(d: &Def) -> String {
 /// Machine-readable outline.
 pub fn outline_json(path: &str, defs: &[Def]) -> String {
     let items: Vec<String> = defs.iter().map(def_json).collect();
-    format!("{{\"path\":{},\"defs\":[{}]}}\n", jstr(path), items.join(","))
+    format!(
+        "{{\"path\":{},\"defs\":[{}]}}\n",
+        jstr(path),
+        items.join(",")
+    )
 }
 
 /// Human-readable structural map of a whole directory (one pass, grouped by file).
-pub fn outline_dir_view(root: &str, files: &[(String, Vec<Def>)], total: usize, color: bool) -> String {
+pub fn outline_dir_view(
+    root: &str,
+    files: &[(String, Vec<Def>)],
+    total: usize,
+    color: bool,
+) -> String {
     let mut out = String::new();
     let head = format!("┌─ map: {root} ─ {total} defs in {} files ", files.len());
     out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(16))));
@@ -419,7 +441,11 @@ pub fn outline_dir_json(root: &str, files: &[(String, Vec<Def>)]) -> String {
             format!("{{\"file\":{},\"defs\":[{}]}}", jstr(f), items.join(","))
         })
         .collect();
-    format!("{{\"root\":{},\"files\":[{}]}}\n", jstr(root), groups.join(","))
+    format!(
+        "{{\"root\":{},\"files\":[{}]}}\n",
+        jstr(root),
+        groups.join(",")
+    )
 }
 
 // --- find ---------------------------------------------------------------------
@@ -438,7 +464,11 @@ pub struct FindMatch {
 /// each hit becomes a block separated by a faint rule.
 pub fn find_view(pattern: &str, matches: &[FindMatch], files: usize, color: bool) -> String {
     let mut out = String::new();
-    let scope_note = if files > 1 { format!(" in {files} files") } else { String::new() };
+    let scope_note = if files > 1 {
+        format!(" in {files} files")
+    } else {
+        String::new()
+    };
     let head = format!(
         "┌─ find {} ─ {} match{}{scope_note} ",
         jstr(pattern),
@@ -448,7 +478,9 @@ pub fn find_view(pattern: &str, matches: &[FindMatch], files: usize, color: bool
     out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(20))));
     out.push('\n');
 
-    let has_ctx = matches.iter().any(|m| !m.before.is_empty() || !m.after.is_empty());
+    let has_ctx = matches
+        .iter()
+        .any(|m| !m.before.is_empty() || !m.after.is_empty());
     let max_line = matches
         .iter()
         .map(|m| m.after.last().map(|(n, _)| *n).unwrap_or(m.line))
@@ -472,9 +504,16 @@ pub fn find_view(pattern: &str, matches: &[FindMatch], files: usize, color: bool
         }
         for (n, t) in &m.before {
             let num = paint(color, DIM, &format!("{:>w$}", n, w = gw));
-            out.push_str(&format!("{num} {sep} {}\n", paint(color, DIM, t.trim_end())));
+            out.push_str(&format!(
+                "{num} {sep} {}\n",
+                paint(color, DIM, t.trim_end())
+            ));
         }
-        let num = paint(color, &format!("{COPPER}{BOLD}"), &format!("{:>w$}", m.line, w = gw));
+        let num = paint(
+            color,
+            &format!("{COPPER}{BOLD}"),
+            &format!("{:>w$}", m.line, w = gw),
+        );
         let mut line = format!("{num} {sep} {}", m.text.trim_end());
         if let Some((scope, a, b)) = &m.scope {
             line.push_str(&paint(color, DIM, &format!("   ↳ {scope} ({a}–{b})")));
@@ -483,7 +522,10 @@ pub fn find_view(pattern: &str, matches: &[FindMatch], files: usize, color: bool
         out.push('\n');
         for (n, t) in &m.after {
             let num = paint(color, DIM, &format!("{:>w$}", n, w = gw));
-            out.push_str(&format!("{num} {sep} {}\n", paint(color, DIM, t.trim_end())));
+            out.push_str(&format!(
+                "{num} {sep} {}\n",
+                paint(color, DIM, t.trim_end())
+            ));
         }
         first_in_file = false;
     }
@@ -558,9 +600,18 @@ pub fn rename_view(
     );
     out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(12))));
     out.push('\n');
-    let cw = files.iter().map(|(_, c)| c.to_string().len()).max().unwrap_or(1).max(2);
+    let cw = files
+        .iter()
+        .map(|(_, c)| c.to_string().len())
+        .max()
+        .unwrap_or(1)
+        .max(2);
     for (f, c) in files {
-        let count = paint(color, &format!("{COPPER}{BOLD}"), &format!("{:>w$}", c, w = cw));
+        let count = paint(
+            color,
+            &format!("{COPPER}{BOLD}"),
+            &format!("{:>w$}", c, w = cw),
+        );
         let sep = paint(color, DIM, "│");
         out.push_str(&format!("{count} {sep} {f}\n"));
     }
@@ -597,7 +648,7 @@ pub fn rename_json(
 /// Human-readable hygiene report.
 pub fn check_view(path: &str, issues: &[Issue], color: bool) -> String {
     if issues.is_empty() {
-        return paint(color, &format!("{MINT}"), &format!("✓ {path} — clean")) + "\n";
+        return paint(color, MINT, &format!("✓ {path} — clean")) + "\n";
     }
     let mut out = String::new();
     let head = format!("┌─ check: {path} ─ {} issue(s) ", issues.len());
@@ -613,7 +664,11 @@ pub fn check_view(path: &str, issues: &[Issue], color: bool) -> String {
         .max(2);
     for it in issues {
         let loc = match it.line {
-            Some(n) => paint(color, &format!("{COPPER}{BOLD}"), &format!("{:>w$}", n, w = gw)),
+            Some(n) => paint(
+                color,
+                &format!("{COPPER}{BOLD}"),
+                &format!("{:>w$}", n, w = gw),
+            ),
             None => paint(color, DIM, &format!("{:>w$}", "·", w = gw)),
         };
         let sep = paint(color, DIM, "│");
@@ -634,7 +689,12 @@ pub fn check_json(path: &str, issues: &[Issue]) -> String {
                 Some(n) => n.to_string(),
                 None => "null".to_string(),
             };
-            format!("{{\"line\":{},\"kind\":\"{}\",\"msg\":{}}}", line, i.kind, jstr(&i.msg))
+            format!(
+                "{{\"line\":{},\"kind\":\"{}\",\"msg\":{}}}",
+                line,
+                i.kind,
+                jstr(&i.msg)
+            )
         })
         .collect();
     format!(

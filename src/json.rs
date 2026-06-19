@@ -31,7 +31,10 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn new(s: &'a str) -> Self {
-        Parser { b: s.as_bytes(), i: 0 }
+        Parser {
+            b: s.as_bytes(),
+            i: 0,
+        }
     }
 
     fn ws(&mut self) {
@@ -48,7 +51,11 @@ impl<'a> Parser<'a> {
             Some(b'[') => self.parse_arr(start),
             Some(b'"') => {
                 let s = self.parse_string()?;
-                Ok(Node { start, end: self.i, kind: Kind::Str(s) })
+                Ok(Node {
+                    start,
+                    end: self.i,
+                    kind: Kind::Str(s),
+                })
             }
             Some(_) => self.parse_scalar(start),
             None => Err("unexpected end of JSON".into()),
@@ -61,7 +68,11 @@ impl<'a> Parser<'a> {
         self.ws();
         if self.b.get(self.i) == Some(&b'}') {
             self.i += 1;
-            return Ok(Node { start, end: self.i, kind: Kind::Obj(members) });
+            return Ok(Node {
+                start,
+                end: self.i,
+                kind: Kind::Obj(members),
+            });
         }
         loop {
             self.ws();
@@ -87,7 +98,11 @@ impl<'a> Parser<'a> {
                 _ => return Err("expected ',' or '}' in object".into()),
             }
         }
-        Ok(Node { start, end: self.i, kind: Kind::Obj(members) })
+        Ok(Node {
+            start,
+            end: self.i,
+            kind: Kind::Obj(members),
+        })
     }
 
     fn parse_arr(&mut self, start: usize) -> Result<Node, String> {
@@ -96,7 +111,11 @@ impl<'a> Parser<'a> {
         self.ws();
         if self.b.get(self.i) == Some(&b']') {
             self.i += 1;
-            return Ok(Node { start, end: self.i, kind: Kind::Arr(items) });
+            return Ok(Node {
+                start,
+                end: self.i,
+                kind: Kind::Arr(items),
+            });
         }
         loop {
             items.push(self.parse_value()?);
@@ -110,7 +129,11 @@ impl<'a> Parser<'a> {
                 _ => return Err("expected ',' or ']' in array".into()),
             }
         }
-        Ok(Node { start, end: self.i, kind: Kind::Arr(items) })
+        Ok(Node {
+            start,
+            end: self.i,
+            kind: Kind::Arr(items),
+        })
     }
 
     fn parse_string(&mut self) -> Result<String, String> {
@@ -158,14 +181,21 @@ impl<'a> Parser<'a> {
 
     fn parse_scalar(&mut self, start: usize) -> Result<Node, String> {
         while self.i < self.b.len()
-            && !matches!(self.b[self.i], b',' | b'}' | b']' | b' ' | b'\t' | b'\n' | b'\r')
+            && !matches!(
+                self.b[self.i],
+                b',' | b'}' | b']' | b' ' | b'\t' | b'\n' | b'\r'
+            )
         {
             self.i += 1;
         }
         if self.i == start {
             return Err("expected a value".into());
         }
-        Ok(Node { start, end: self.i, kind: Kind::Scalar })
+        Ok(Node {
+            start,
+            end: self.i,
+            kind: Kind::Scalar,
+        })
     }
 }
 
@@ -228,7 +258,12 @@ pub fn set(content: &str, path: &str, value: &str) -> Result<Option<String>, Str
     let root = parse(content)?;
     let span = navigate(&root, path).map(|n| (n.start, n.end));
     Ok(span.map(|(start, end)| {
-        format!("{}{}{}", &content[..start], encode_value(value), &content[end..])
+        format!(
+            "{}{}{}",
+            &content[..start],
+            encode_value(value),
+            &content[end..]
+        )
     }))
 }
 
@@ -280,7 +315,11 @@ pub fn del(content: &str, path: &str) -> Result<Option<String>, String> {
         }
         _ => return Err("parent is not an object or array".into()),
     };
-    Ok(Some(format!("{}{}", &content[..span.0], &content[span.1..])))
+    Ok(Some(format!(
+        "{}{}",
+        &content[..span.0],
+        &content[span.1..]
+    )))
 }
 
 /// Keep `v` as-is if it is a complete JSON value; otherwise encode as a string.
@@ -387,7 +426,10 @@ mod tests {
 
     #[test]
     fn get_object_returns_raw() {
-        assert_eq!(get(J, "a.b.2").unwrap().as_deref(), Some(r#"{ "c": "hi" }"#));
+        assert_eq!(
+            get(J, "a.b.2").unwrap().as_deref(),
+            Some(r#"{ "c": "hi" }"#)
+        );
     }
 
     #[test]
@@ -399,7 +441,10 @@ mod tests {
     #[test]
     fn set_preserves_surrounding_format() {
         let out = set(J, "port", "9090").unwrap().unwrap();
-        assert_eq!(out, r#"{ "a": { "b": [10, 20, { "c": "hi" }] }, "port": 9090 }"#);
+        assert_eq!(
+            out,
+            r#"{ "a": { "b": [10, 20, { "c": "hi" }] }, "port": 9090 }"#
+        );
     }
 
     #[test]
@@ -446,7 +491,10 @@ mod tests {
     #[test]
     fn del_nested() {
         let j = r#"{"x": {"a": 1, "b": 2}, "y": 9}"#;
-        assert_eq!(del(j, "x.a").unwrap().unwrap(), r#"{"x": {"b": 2}, "y": 9}"#);
+        assert_eq!(
+            del(j, "x.a").unwrap().unwrap(),
+            r#"{"x": {"b": 2}, "y": 9}"#
+        );
     }
 
     #[test]

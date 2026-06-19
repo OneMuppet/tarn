@@ -50,7 +50,10 @@ pub fn replace(content: &str, n: usize, text: &str) -> Result<String, String> {
     let (end, fin) = style(content);
     let mut lines = split(content);
     if n == 0 || n > lines.len() {
-        return Err(format!("line {n} is out of range (file has {} lines)", lines.len()));
+        return Err(format!(
+            "line {n} is out of range (file has {} lines)",
+            lines.len()
+        ));
     }
     lines.splice(n - 1..n, text_lines(text));
     Ok(join(lines, end, fin))
@@ -62,7 +65,10 @@ pub fn insert(content: &str, after: usize, text: &str) -> Result<String, String>
     let (end, fin) = style(content);
     let mut lines = split(content);
     if after > lines.len() {
-        return Err(format!("line {after} is out of range (file has {} lines)", lines.len()));
+        return Err(format!(
+            "line {after} is out of range (file has {} lines)",
+            lines.len()
+        ));
     }
     lines.splice(after..after, text_lines(text));
     Ok(join(lines, end, fin))
@@ -73,7 +79,10 @@ pub fn delete(content: &str, a: usize, b: usize) -> Result<String, String> {
     let (end, fin) = style(content);
     let mut lines = split(content);
     if a == 0 || a > b || b > lines.len() {
-        return Err(format!("range {a}-{b} is out of range (file has {} lines)", lines.len()));
+        return Err(format!(
+            "range {a}-{b} is out of range (file has {} lines)",
+            lines.len()
+        ));
     }
     lines.drain(a - 1..b);
     Ok(join(lines, end, fin))
@@ -152,11 +161,7 @@ pub fn apply_ops(content: &str, ops: &[Op]) -> Result<String, String> {
         if let Op::Expect(line, want) = op {
             match orig.get(line.wrapping_sub(1)) {
                 Some(actual) if line >= &1 && actual == want => {}
-                _ => {
-                    return Err(format!(
-                        "expect failed at line {line}: file does not match"
-                    ))
-                }
+                _ => return Err(format!("expect failed at line {line}: file does not match")),
             }
         }
     }
@@ -264,7 +269,11 @@ pub fn check(content: &str) -> Vec<Issue> {
     let mut issues = Vec::new();
 
     if content.starts_with('\u{feff}') {
-        issues.push(Issue { line: None, kind: "bom", msg: "file starts with a UTF-8 BOM".into() });
+        issues.push(Issue {
+            line: None,
+            kind: "bom",
+            msg: "file starts with a UTF-8 BOM".into(),
+        });
     }
 
     let crlf = content.matches("\r\n").count();
@@ -281,9 +290,16 @@ pub fn check(content: &str) -> Vec<Issue> {
     for (idx, line) in lines.iter().enumerate() {
         let n = idx + 1;
         if line.ends_with(' ') || line.ends_with('\t') {
-            issues.push(Issue { line: Some(n), kind: "trailing-ws", msg: "trailing whitespace".into() });
+            issues.push(Issue {
+                line: Some(n),
+                kind: "trailing-ws",
+                msg: "trailing whitespace".into(),
+            });
         }
-        let lead: String = line.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+        let lead: String = line
+            .chars()
+            .take_while(|c| *c == ' ' || *c == '\t')
+            .collect();
         if lead.contains('\t') && lead.contains(' ') {
             issues.push(Issue {
                 line: Some(n),
@@ -294,10 +310,18 @@ pub fn check(content: &str) -> Vec<Issue> {
     }
 
     if !content.is_empty() && !content.ends_with('\n') {
-        issues.push(Issue { line: None, kind: "no-final-newline", msg: "no trailing newline".into() });
+        issues.push(Issue {
+            line: None,
+            kind: "no-final-newline",
+            msg: "no trailing newline".into(),
+        });
     }
     // Trailing blank lines (a single final newline is normal; extra empties aren't).
-    let trailing_blanks = lines.iter().rev().take_while(|l| l.trim().is_empty()).count();
+    let trailing_blanks = lines
+        .iter()
+        .rev()
+        .take_while(|l| l.trim().is_empty())
+        .count();
     if trailing_blanks > 0 {
         issues.push(Issue {
             line: None,
@@ -372,7 +396,10 @@ mod tests {
     #[test]
     fn preserves_crlf_on_untouched_lines() {
         let crlf = "keep\r\nedit\r\nkeep2\r\n";
-        assert_eq!(replace(crlf, 2, "EDITED").unwrap(), "keep\r\nEDITED\r\nkeep2\r\n");
+        assert_eq!(
+            replace(crlf, 2, "EDITED").unwrap(),
+            "keep\r\nEDITED\r\nkeep2\r\n"
+        );
         // a multi-op batch on a CRLF file keeps CRLF too
         let ops = vec![Op::Delete(1, 1), Op::Insert(3, "ADDED".to_string())];
         assert_eq!(apply_ops(crlf, &ops).unwrap(), "edit\r\nkeep2\r\nADDED\r\n");
@@ -394,13 +421,23 @@ mod tests {
 
     #[test]
     fn apply_insert_and_replace_together() {
-        let ops = vec![Op::Insert(0, "TOP".to_string()), Op::Replace(2, "BETA".to_string()), Op::Insert(3, "BOT".to_string())];
-        assert_eq!(apply_ops(DOC, &ops).unwrap(), "TOP\nalpha\nBETA\ngamma\nBOT\n");
+        let ops = vec![
+            Op::Insert(0, "TOP".to_string()),
+            Op::Replace(2, "BETA".to_string()),
+            Op::Insert(3, "BOT".to_string()),
+        ];
+        assert_eq!(
+            apply_ops(DOC, &ops).unwrap(),
+            "TOP\nalpha\nBETA\ngamma\nBOT\n"
+        );
     }
 
     #[test]
     fn apply_is_atomic_on_expect_failure() {
-        let ops = vec![Op::Expect(2, "WRONG".to_string()), Op::Replace(1, "X".to_string())];
+        let ops = vec![
+            Op::Expect(2, "WRONG".to_string()),
+            Op::Replace(1, "X".to_string()),
+        ];
         assert!(apply_ops(DOC, &ops).is_err());
     }
 
@@ -412,7 +449,10 @@ mod tests {
 
     #[test]
     fn apply_expect_passes() {
-        let ops = vec![Op::Expect(2, "beta".to_string()), Op::Replace(2, "BETA".to_string())];
+        let ops = vec![
+            Op::Expect(2, "beta".to_string()),
+            Op::Replace(2, "BETA".to_string()),
+        ];
         assert_eq!(apply_ops(DOC, &ops).unwrap(), "alpha\nBETA\ngamma\n");
     }
 
@@ -420,7 +460,10 @@ mod tests {
     fn matching_lines_and_whole_line_replace() {
         let doc = "alpha\nbeta x\ngamma\nbeta y\n";
         assert_eq!(find_matching_lines(doc, "beta"), vec![2, 4]);
-        assert_eq!(replace_at_lines(doc, &[2], "BETA"), "alpha\nBETA\ngamma\nbeta y\n");
+        assert_eq!(
+            replace_at_lines(doc, &[2], "BETA"),
+            "alpha\nBETA\ngamma\nbeta y\n"
+        );
         assert_eq!(replace_at_lines(doc, &[2, 4], "Z"), "alpha\nZ\ngamma\nZ\n");
         assert_eq!(find_matching_lines(doc, "nope"), Vec::<usize>::new());
     }
@@ -466,7 +509,10 @@ mod tests {
 
     #[test]
     fn check_detects_mixed_indent_and_eol() {
-        let kinds: Vec<&str> = check(" \tindented\r\nplain\n").iter().map(|i| i.kind).collect();
+        let kinds: Vec<&str> = check(" \tindented\r\nplain\n")
+            .iter()
+            .map(|i| i.kind)
+            .collect();
         assert!(kinds.contains(&"mixed-indent"));
         assert!(kinds.contains(&"mixed-eol"));
     }

@@ -132,7 +132,11 @@ fn scan_value(b: &[u8], vs: usize) -> Option<(usize, bool, bool)> {
             Some((i + 1, true, true))
         }
         b'[' | b'{' => {
-            let (open, close) = if b[vs] == b'[' { (b'[', b']') } else { (b'{', b'}') };
+            let (open, close) = if b[vs] == b'[' {
+                (b'[', b']')
+            } else {
+                (b'{', b'}')
+            };
             let mut depth = 0i32;
             let mut i = vs;
             let mut multiline = false;
@@ -262,7 +266,8 @@ fn entries(content: &str) -> Result<Vec<Entry>, String> {
 
 fn find<'a>(es: &'a [Entry], path: &str) -> Option<&'a Entry> {
     let want: Vec<&str> = path.split('.').collect();
-    es.iter().find(|e| e.path.len() == want.len() && e.path.iter().zip(&want).all(|(a, b)| a == b))
+    es.iter()
+        .find(|e| e.path.len() == want.len() && e.path.iter().zip(&want).all(|(a, b)| a == b))
 }
 
 /// Decode a single-line TOML string value (strip one quote layer; unescape basic).
@@ -322,7 +327,10 @@ pub fn del(content: &str, path: &str) -> Result<Option<String>, String> {
         None => return Ok(None),
     };
     let ls = content[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let le = content[pos..].find('\n').map(|i| pos + i + 1).unwrap_or(content.len());
+    let le = content[pos..]
+        .find('\n')
+        .map(|i| pos + i + 1)
+        .unwrap_or(content.len());
     Ok(Some(format!("{}{}", &content[..ls], &content[le..])))
 }
 
@@ -339,7 +347,12 @@ pub fn set(content: &str, path: &str, value: &str) -> Result<Option<String>, Str
         return Err("cannot set a multiline or array-of-table value".into());
     }
     let encoded = encode_value(value);
-    Ok(Some(format!("{}{}{}", &content[..vstart], encoded, &content[vend..])))
+    Ok(Some(format!(
+        "{}{}{}",
+        &content[..vstart],
+        encoded,
+        &content[vend..]
+    )))
 }
 
 /// Keep `v` if it's a complete single-line TOML value; else make it a basic string.
@@ -390,7 +403,11 @@ fn is_datetime(t: &str) -> bool {
         (Some(m), Some(d)) => (m, d),
         _ => return false,
     };
-    if !(1..=9999).contains(&year) || !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
+    if !(1..=9999).contains(&year)
+        || !(1..=12).contains(&month)
+        || day < 1
+        || day > days_in_month(year, month)
+    {
         return false;
     }
     if b.len() == 10 {
@@ -452,6 +469,9 @@ fn parse_time(b: &[u8], i: usize) -> Option<usize> {
     Some(j)
 }
 
+// The classic Gregorian leap-year rule reads more clearly than is_multiple_of()
+// and keeps the MSRV low (is_multiple_of stabilized only in Rust 1.87).
+#[allow(clippy::manual_is_multiple_of)]
 fn days_in_month(year: u16, month: u8) -> u8 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
@@ -536,8 +556,14 @@ enabled = false
         assert_eq!(get(T, "title").unwrap().as_deref(), Some("hello")); // decoded
         assert_eq!(get(T, "port").unwrap().as_deref(), Some("8000"));
         assert_eq!(get(T, "server.host").unwrap().as_deref(), Some("localhost"));
-        assert_eq!(get(T, "server.tls.enabled").unwrap().as_deref(), Some("false"));
-        assert_eq!(get(T, "server.tags").unwrap().as_deref(), Some("[\"a\", \"b\"]"));
+        assert_eq!(
+            get(T, "server.tls.enabled").unwrap().as_deref(),
+            Some("false")
+        );
+        assert_eq!(
+            get(T, "server.tags").unwrap().as_deref(),
+            Some("[\"a\", \"b\"]")
+        );
         assert_eq!(get(T, "nope").unwrap(), None);
     }
 
@@ -559,9 +585,18 @@ enabled = false
 
     #[test]
     fn set_bare_word_is_quoted_number_is_bare() {
-        assert!(set(T, "title", "bye").unwrap().unwrap().contains("title = \"bye\""));
-        assert!(set(T, "port", "1234").unwrap().unwrap().contains("port = 1234"));
-        assert!(set(T, "enabled", "false").unwrap().unwrap().contains("enabled = false"));
+        assert!(set(T, "title", "bye")
+            .unwrap()
+            .unwrap()
+            .contains("title = \"bye\""));
+        assert!(set(T, "port", "1234")
+            .unwrap()
+            .unwrap()
+            .contains("port = 1234"));
+        assert!(set(T, "enabled", "false")
+            .unwrap()
+            .unwrap()
+            .contains("enabled = false"));
     }
 
     #[test]
@@ -574,19 +609,43 @@ enabled = false
         let doc = "v = \"x\"\n";
         // NOT valid bare TOML → must be quoted (semver, words, and date/time-shaped garbage)
         for bad in [
-            "0.2.0", "1.2.3", "hello", "1.2.3-rc1", "a b",
-            "2024-13-99zzz", "9999-99-99", "0000-00-00", "2024-01-01zzzz", "1234-56-78",
-            "2024-01-15Tzzzz", "0000-00-00T00:00:00z", "2024-01-15.", "12:99:99", "99:99:99",
-            "1:2:3", "2024-01-15+", "2024-02-31", "0000-01-01",
+            "0.2.0",
+            "1.2.3",
+            "hello",
+            "1.2.3-rc1",
+            "a b",
+            "2024-13-99zzz",
+            "9999-99-99",
+            "0000-00-00",
+            "2024-01-01zzzz",
+            "1234-56-78",
+            "2024-01-15Tzzzz",
+            "0000-00-00T00:00:00z",
+            "2024-01-15.",
+            "12:99:99",
+            "99:99:99",
+            "1:2:3",
+            "2024-01-15+",
+            "2024-02-31",
+            "0000-01-01",
         ] {
             let out = set(doc, "v", bad).unwrap().unwrap();
             assert_eq!(out, format!("v = \"{bad}\"\n"), "{bad} must be quoted");
         }
         // genuine bare values stay bare
         for good in [
-            "42", "-1", "3.14", "1e9", "true", "false",
-            "2024-01-15", "07:32:00", "2024-02-29", "2024-01-15T07:32:00Z",
-            "2024-01-15T07:32:00.500+02:00", "2024-01-15 07:32:00",
+            "42",
+            "-1",
+            "3.14",
+            "1e9",
+            "true",
+            "false",
+            "2024-01-15",
+            "07:32:00",
+            "2024-02-29",
+            "2024-01-15T07:32:00Z",
+            "2024-01-15T07:32:00.500+02:00",
+            "2024-01-15 07:32:00",
         ] {
             let out = set(doc, "v", good).unwrap().unwrap();
             assert_eq!(out, format!("v = {good}\n"), "{good} must be bare");
