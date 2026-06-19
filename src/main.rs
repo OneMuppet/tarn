@@ -103,7 +103,14 @@ fn run(args: &[String]) -> u8 {
         "json" => cmd_json(&args[1..]),
         "toml" => cmd_toml(&args[1..]),
         "yaml" => cmd_yaml(&args[1..]),
-        // Anything else is treated as a filename to open.
+        // A lone argument is treated as a file to open (the TUI entry point).
+        // But a bare token with trailing arguments that isn't a known command
+        // is almost certainly a mistyped subcommand (e.g. `tarn relace f 3 X`):
+        // report that as a usage error rather than "file not found".
+        _ if args.len() > 1 && !PathBuf::from(first).exists() => {
+            eprintln!("tarn: unknown command '{first}' — run `tarn help` for the list");
+            EXIT_USAGE
+        }
         _ => open_file(first),
     }
 }
@@ -152,7 +159,13 @@ fn cmd_get(args: &[String]) -> u8 {
         (Some(f), Some(k)) => (f, k),
         _ => return usage_err("get <file> <KEY>"),
     };
-    let content = read_or_empty(file);
+    let content = match read_or_empty(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
     match envfile::get(&content, key) {
         Some(val) => {
             println!("{val}");
@@ -187,7 +200,13 @@ fn cmd_set(args: &[String]) -> u8 {
         return usage_err("set <file> <KEY=VAL>   (KEY must not be empty)");
     }
 
-    let old = read_or_empty(file);
+    let old = match read_or_empty(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
     if let Err(e) = check_expect(&flags.expect, envfile::get(&old, &key)) {
         eprintln!("tarn: {e}");
         return EXIT_GUARD;
@@ -202,7 +221,13 @@ fn cmd_unset(args: &[String]) -> u8 {
         (Some(f), Some(k)) => (f.as_str(), k.as_str()),
         _ => return usage_err("unset <file> <KEY>"),
     };
-    let old = read_or_empty(file);
+    let old = match read_or_empty(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
     if let Err(e) = check_expect(&flags.expect, envfile::get(&old, key)) {
         eprintln!("tarn: {e}");
         return EXIT_GUARD;
@@ -216,7 +241,13 @@ fn cmd_keys(args: &[String]) -> u8 {
         Some(f) => f,
         None => return usage_err("keys <file>"),
     };
-    let content = read_or_empty(file);
+    let content = match read_or_empty(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
     for key in envfile::keys(&content) {
         println!("{key}");
     }
@@ -279,8 +310,8 @@ fn cmd_show(args: &[String]) -> u8 {
                 None => return usage_err("show <file> --block N"),
             },
             "--lines" => match next_range(args, &mut i) {
-                Some(r) => lines = Some(r),
-                None => return usage_err("show <file> --lines A-B"),
+                Some((a, b)) if a <= b => lines = Some((a, b)),
+                _ => return usage_err("show <file> --lines A-B   (A must be ≤ B)"),
             },
             "--around" => match next_usize(args, &mut i) {
                 Some(n) => around = Some(n),
@@ -2234,9 +2265,11 @@ where
     G: FnOnce(&str) -> Result<(), String>,
     F: FnOnce(&str) -> Result<String, String>,
 {
-    // `write` may create the file; the line ops require it to exist.
+    // `write` may create the file and fully replaces it from stdin, so the old
+    // text is only the diff base — best-effort is fine. The line ops require a
+    // readable existing file.
     let old = if op == "write" {
-        read_or_empty(file)
+        read_lossy(file)
     } else {
         match fs::read_to_string(file) {
             Ok(c) => c,
@@ -2398,8 +2431,24 @@ fn next_usize_opt(args: &[String], i: &mut usize) -> Option<usize> {
 }
 
 /// Read a file, treating a missing file as empty (so `set` can create it).
-fn read_or_empty(path: &str) -> String {
-    fs::read_to_string(path).unwrap_or_default()
+/// Read a file for an edit that may also CREATE it: a missing file is an empty
+/// string, but any OTHER error (not valid UTF-8, permission denied, …) is
+/// propagated — so a caller that's about to rewrite the file (`set`/`unset`)
+/// aborts instead of silently treating unreadable existing content as empty and
+/// destroying it.
+fn read_or_empty(path: &str) -> io::Result<String> {
+    match fs::read_to_string(path) {
+        Ok(s) => Ok(s),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e),
+    }
+}
+
+/// `read_or_empty` for callers that just want best-effort content and never
+/// write back based on it (e.g. `write`, which fully replaces the file from
+/// stdin and only uses the old text for the diff preview).
+fn read_lossy(path: &str) -> String {
+    read_or_empty(path).unwrap_or_default()
 }
 
 fn usage_err(form: &str) -> u8 {
@@ -2587,6 +2636,20 @@ mod tests {
         assert_eq!(count_matching_lines("a hit\r\nb\r\nhit two\r\n", "hit"), 2);
         // No trailing newline, match on the last line.
         assert_eq!(count_matching_lines("nope\nlast hit", "hit"), 1);
+    }
+
+    #[test]
+    fn read_or_empty_allows_missing_but_refuses_unreadable() {
+        // Missing file → empty (so `set` can create it).
+        let missing = std::env::temp_dir().join("tarn_test_missing_zzz_42");
+        let _ = std::fs::remove_file(&missing);
+        assert_eq!(read_or_empty(missing.to_str().unwrap()).unwrap(), "");
+        // Existing but NOT valid UTF-8 → Err, so set/unset abort instead of
+        // silently treating it as empty and overwriting (data-loss regression).
+        let bad = std::env::temp_dir().join("tarn_test_nonutf8_42.bin");
+        std::fs::write(&bad, [0x6b, 0x3d, 0xff, 0xfe, 0x0a]).unwrap(); // "k=" + bad bytes
+        assert!(read_or_empty(bad.to_str().unwrap()).is_err());
+        let _ = std::fs::remove_file(&bad);
     }
 
     #[test]
