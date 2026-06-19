@@ -69,11 +69,12 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd {
         name: "replace",
         group: "edit",
-        usage: "tarn replace <file> <N> <text> [--expect T]  |  tarn replace <file> --match <anchor> <new-line> [--all]   [--diff|--json|--dry-run]",
-        summary: "Replace line N (guard with --expect T). Or, content-addressed: --match <anchor> replaces the whole line containing <anchor> (must be unique unless --all) — no line number, survives drift.",
+        usage: "tarn replace <file> <N> <text> [--expect T]  |  --match <anchor> <new-line> [--all]  |  --def <name> (new text on stdin)   [--diff|--json|--dry-run]",
+        summary: "Replace line N (guard with --expect T). Or content-addressed: --match <anchor> replaces the whole line containing <anchor> (unique unless --all). Or structural: --def <name> swaps a whole definition for new text read from stdin.",
         examples: &[
             "tarn replace app.py 27 'PORT = 9090' --expect 'PORT = 8000'",
             "tarn replace app.py --match 'PORT = 8000' 'PORT = 9090'",
+            "tarn replace src/main.rs --def old_fn --diff < new_fn.rs",
         ],
     },
     Cmd {

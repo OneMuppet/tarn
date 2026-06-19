@@ -47,6 +47,7 @@ tarn check src/server.rs             # 6. verify you left no junk
 | Replace a line | `tarn replace <file> <N> <text> [--expect T] [--diff\|--dry-run]` |
 | Replace by content | `tarn replace <file> --match <anchor> <new-line> [--all]` |
 | Insert / delete | `tarn insert <file> <after-N> <text>` · `tarn delete <file> <A-B>` |
+| Edit a whole def | `tarn delete <file> --def <name>` · `… \| tarn replace <file> --def <name>` |
 | Rewrite a file | `… \| tarn write <file>` |
 | Batch / cross-file edit | `… \| tarn apply [file]` (use `file <path>` lines; atomic) |
 | Rename (whole-word) | `tarn rename <path> <old> <new> [--in <def>] [--dry-run]` |

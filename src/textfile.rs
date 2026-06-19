@@ -88,6 +88,22 @@ pub fn delete(content: &str, a: usize, b: usize) -> Result<String, String> {
     Ok(join(lines, end, fin))
 }
 
+/// Replace the inclusive line range `a..=b` with `text` (which may be any number
+/// of lines), preserving the file's own line ending. Used by structural replace
+/// (`replace --def`) to swap a whole definition for new content.
+pub fn replace_range(content: &str, a: usize, b: usize, text: &str) -> Result<String, String> {
+    let (end, fin) = style(content);
+    let mut lines = split(content);
+    if a == 0 || a > b || b > lines.len() {
+        return Err(format!(
+            "range {a}-{b} is out of range (file has {} lines)",
+            lines.len()
+        ));
+    }
+    lines.splice(a - 1..b, text_lines(text));
+    Ok(join(lines, end, fin))
+}
+
 /// Normalize arbitrary input, preserving its own line ending and trailing-newline
 /// state (does not force a final newline).
 pub fn normalize(input: &str) -> String {
@@ -505,6 +521,22 @@ mod tests {
         let (out, n) = rename("a port\r\nb\r\n", "port", "PORT", true);
         assert_eq!(out, "a PORT\r\nb\r\n");
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn replace_range_swaps_block_and_preserves_eol() {
+        // Replace lines 2-3 (a multi-line block) with a 2-line block.
+        let out = replace_range("a\nb\nc\nd\n", 2, 3, "X\nY").unwrap();
+        assert_eq!(out, "a\nX\nY\nd\n");
+        // Shrinking: 3 lines → 1.
+        let out = replace_range("a\nb\nc\nd\n", 2, 4, "Z").unwrap();
+        assert_eq!(out, "a\nZ\n");
+        // CRLF preserved.
+        let out = replace_range("a\r\nb\r\nc\r\n", 2, 2, "X\nY").unwrap();
+        assert_eq!(out, "a\r\nX\r\nY\r\nc\r\n");
+        // Out of range errors.
+        assert!(replace_range("a\nb\n", 0, 1, "x").is_err());
+        assert!(replace_range("a\nb\n", 2, 5, "x").is_err());
     }
 
     #[test]

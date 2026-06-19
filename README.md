@@ -205,6 +205,8 @@ tarn replace app.py 2 '    print(f"hi {name}!")' --diff
 tarn replace app.py --match 'PORT = 8000' 'PORT = 9090'   # by CONTENT, not line number
 tarn insert  app.py 0 '#!/usr/bin/env python3'   # 0 = insert at the top
 tarn delete  app.py 5-6                           # (alias: del)
+tarn delete  src/main.rs --def old_helper         # delete a WHOLE definition by name
+cat new_fn.rs | tarn replace src/main.rs --def old_helper --diff   # swap a whole def from stdin
 some-generator | tarn write app.py --diff         # replace whole file from stdin
 ```
 

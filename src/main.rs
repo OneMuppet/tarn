@@ -1665,6 +1665,58 @@ fn walk(dir: &PathBuf, out: &mut Vec<PathBuf>) {
 fn cmd_replace(args: &[String]) -> u8 {
     let flags = parse_edit_flags(args);
 
+    // Structural mode: `replace <file> --def <name>` — swap a whole definition
+    // block for new text read from stdin. The symmetric write to `delete --def`.
+    if let Some(name) = flags.def.clone() {
+        let file = match flags.rest.first() {
+            Some(f) => f.as_str(),
+            None => return usage_err("replace <file> --def <name>   (new definition on stdin)"),
+        };
+        let old = match fs::read_to_string(file) {
+            Ok(c) => c,
+            Err(_) => {
+                eprintln!("tarn: cannot read {file}");
+                return EXIT_NOT_FOUND;
+            }
+        };
+        let (a, b) = match def_block_range(file, &old, &name) {
+            Ok(r) => r,
+            Err((code, msg)) => {
+                eprintln!("tarn: {msg}");
+                return code;
+            }
+        };
+        let mut input = String::new();
+        if io::stdin().read_to_string(&mut input).is_err() {
+            eprintln!("tarn: failed to read stdin");
+            return EXIT_USAGE;
+        }
+        // Drop one trailing line terminator (\n, \r\n, or \r) so the piped block
+        // doesn't leave a blank line after the spliced definition.
+        let mut repl = input.as_str();
+        if let Some(s) = repl.strip_suffix('\n') {
+            repl = s;
+        }
+        if let Some(s) = repl.strip_suffix('\r') {
+            repl = s;
+        }
+        if repl.is_empty() {
+            eprintln!(
+                "tarn: empty replacement — use `tarn delete {file} --def {name}` to remove a definition"
+            );
+            return EXIT_USAGE;
+        }
+        let repl = repl.to_string();
+        let exp = flags.expect.clone();
+        return apply_edit(
+            file,
+            "replace",
+            &flags,
+            |c| check_expect(&exp, textfile::range_text(c, a, b)),
+            move |c| textfile::replace_range(c, a, b, &repl),
+        );
+    }
+
     // Anchored mode: `replace <file> --match <anchor> <new-line>` — content-
     // addressed, no line number. Replaces the whole line(s) containing <anchor>.
     if let Some(anchor) = flags.match_anchor.clone() {
@@ -2245,7 +2297,7 @@ USAGE:
     tarn show    <file>         editor-style snapshot to stdout
         --lines A-B | --around N [--context K] | --head [K] | --tail [K] | --all
         --block N (the whole def at line N) | --highlight A-B | --json | --plain | --color
-    tarn replace <file> <N> <text>        replace line N
+    tarn replace <file> <N> <text>        replace line N, or --def <name> to swap a whole def (stdin)
         --match <anchor> <new-line>       ...or the whole line containing <anchor> [--all]
     tarn insert  <file> <after-N> <text>  insert after line N (0=top)
     tarn delete  <file> <A-B>             delete line range, or --def <name> for a whole def  (alias: del)
