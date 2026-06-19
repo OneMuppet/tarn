@@ -155,7 +155,15 @@ fn detect(line: &str, rules: &Rules) -> Option<(String, String)> {
     for kw in rules.keywords {
         let matches = t == *kw || t.starts_with(&format!("{kw} ")) || t.starts_with(&format!("{kw}!"));
         if matches {
-            let rest = &t[kw.len()..];
+            let mut rest = &t[kw.len()..];
+            // `enum class Foo` (Kotlin, C++ scoped enums) / `enum struct Foo`:
+            // the real name follows the secondary keyword.
+            if *kw == "enum" {
+                let r = rest.trim_start();
+                if let Some(after) = r.strip_prefix("class ").or_else(|| r.strip_prefix("struct ")) {
+                    rest = after;
+                }
+            }
             let name = name_after(rest);
             if !name.is_empty() {
                 return Some((kw.trim_end_matches('!').to_string(), name));
@@ -375,6 +383,11 @@ def main():
         // Java: class-level (methods are returnType name(), not keyword-led)
         let jv = names("a.java", "public class Foo {\n  void bar() {}\n}\n");
         assert!(has(&jv, "Foo"), "{jv:?}");
+        // `enum class` (Kotlin always; C++ scoped enums) → name is the enum, not "class X"
+        let ke = names("a.kt", "enum class Color { RED, GREEN }\n");
+        assert!(has(&ke, "Color") && !has(&ke, "class Color"), "{ke:?}");
+        let ce = names("a.cpp", "enum class Mode { A, B };\nenum struct Flag { X };\n");
+        assert!(has(&ce, "Mode") && has(&ce, "Flag"), "{ce:?}");
     }
 
     #[test]
