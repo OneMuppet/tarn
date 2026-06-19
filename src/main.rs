@@ -20,8 +20,94 @@ mod yaml;
 use render::Window;
 use std::fs;
 use std::io::{self, IsTerminal, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+/// A read-only memory map of a file via libc `mmap` (no crate — the same
+/// std+FFI approach tarn already uses for `stty`/signals). Lets `find -c` scan a
+/// large file straight from the page cache instead of `fs::read` copying the
+/// whole thing into a `Vec` first, which is the single biggest cost on a
+/// multi-hundred-MB file. Unix only; callers fall back to `fs::read`.
+///
+/// Tradeoff: a `MAP_PRIVATE` read-only map means that if another process
+/// TRUNCATES the file while we're scanning it, touching the now-missing pages
+/// raises SIGBUS and kills the process (the `fs::read` path copies up front and
+/// avoids this). Same accepted tradeoff ripgrep makes — files are agent-local
+/// and the map lives only for the few milliseconds of a single scan.
+#[cfg(unix)]
+mod mmap {
+    use std::fs::File;
+    use std::os::unix::io::AsRawFd;
+
+    // PROT_READ / MAP_PRIVATE have these values on both macOS and Linux.
+    const PROT_READ: i32 = 0x1;
+    const MAP_PRIVATE: i32 = 0x2;
+
+    extern "C" {
+        fn mmap(
+            addr: *mut core::ffi::c_void,
+            len: usize,
+            prot: i32,
+            flags: i32,
+            fd: i32,
+            offset: i64,
+        ) -> *mut core::ffi::c_void;
+        fn munmap(addr: *mut core::ffi::c_void, len: usize) -> i32;
+    }
+
+    pub struct Mapped {
+        ptr: *mut core::ffi::c_void,
+        len: usize,
+        _file: File, // keep the file (and its fd's mapping) alive for our lifetime
+    }
+
+    impl Mapped {
+        /// Map `path` read-only. `None` for an empty file (mmap rejects a zero
+        /// length) or any failure — the caller falls back to `fs::read`.
+        pub fn open(path: &std::path::Path) -> Option<Mapped> {
+            let file = File::open(path).ok()?;
+            let len = file.metadata().ok()?.len() as usize;
+            if len == 0 {
+                return None;
+            }
+            // SAFETY: fd is valid for the duration (we own `file`); len > 0; a
+            // null addr lets the kernel place it; the region is only ever read.
+            let ptr = unsafe {
+                mmap(
+                    core::ptr::null_mut(),
+                    len,
+                    PROT_READ,
+                    MAP_PRIVATE,
+                    file.as_raw_fd(),
+                    0,
+                )
+            };
+            if ptr as isize == -1 {
+                return None; // MAP_FAILED
+            }
+            Some(Mapped {
+                ptr,
+                len,
+                _file: file,
+            })
+        }
+
+        pub fn bytes(&self) -> &[u8] {
+            // SAFETY: ptr/len come from a successful mmap and stay valid until
+            // Drop munmaps them; the returned borrow is tied to `&self`.
+            unsafe { core::slice::from_raw_parts(self.ptr as *const u8, self.len) }
+        }
+    }
+
+    impl Drop for Mapped {
+        fn drop(&mut self) {
+            // SAFETY: ptr/len are exactly what mmap handed back.
+            unsafe {
+                munmap(self.ptr, self.len);
+            }
+        }
+    }
+}
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -1427,6 +1513,20 @@ fn cmd_find(args: &[String]) -> u8 {
     let mut matched_files: Vec<String> = Vec::new();
 
     for f in &files {
+        // Pure-count fast path: memory-map the file and count distinct matching
+        // lines across cores (each chunk validates its own UTF-8 and counts), so
+        // both the read-copy and the whole-buffer `from_utf8` are avoided. `None`
+        // skips a binary or non-UTF-8 file, just like the read path below.
+        if count_only && can_fast_count(pattern, ignore_case, word) {
+            if let Some(file_count) = scan_count(f, pattern) {
+                if file_count > 0 {
+                    total += file_count;
+                    hit_files += 1;
+                }
+            }
+            continue;
+        }
+
         // Read raw bytes; skip binaries fast (a NUL in the first chunk is the
         // usual giveaway) and anything that isn't valid UTF-8 text.
         let bytes = match fs::read(f) {
@@ -1446,20 +1546,6 @@ fn cmd_find(args: &[String]) -> u8 {
         } else {
             None
         };
-
-        // Pure-count fast path: build ONE substring searcher for the whole file
-        // (via match_indices) instead of rebuilding it per line, and count the
-        // distinct lines a match falls on. A new line is started whenever there's
-        // a newline between consecutive matches (offsets are increasing). Only for
-        // the plain case — case-insensitive / whole-word keep the line scan.
-        if count_only && can_fast_count(pattern, ignore_case, word) {
-            let file_count = count_matching_lines(content, pattern);
-            if file_count > 0 {
-                total += file_count;
-                hit_files += 1;
-            }
-            continue;
-        }
 
         let want_ctx = ctx_before > 0 || ctx_after > 0;
         // Only materialize the line vector when we need random access to
@@ -1613,6 +1699,87 @@ fn line_byte_span(content: &str, start: usize, end: usize) -> Option<(usize, usi
 /// buffer would count it differently. Everything else falls back to the line scan.
 fn can_fast_count(pat: &str, ci: bool, word: bool) -> bool {
     !ci && !word && !pat.is_empty() && !pat.contains(['\r', '\n'])
+}
+
+/// Count distinct matching lines straight off raw bytes, splitting a large file
+/// across CPU cores. Returns `None` if the bytes aren't valid UTF-8 (the file
+/// should be skipped, exactly as the serial `from_utf8` path would).
+///
+/// Chunks start right after a `\n`, which is always a UTF-8 boundary (LF is a
+/// 1-byte char, never part of a multibyte sequence) — so the whole buffer is
+/// valid UTF-8 iff every chunk is, and a line never straddles a boundary. Each
+/// thread therefore validates AND counts its own chunk independently, and the
+/// sum is the exact serial answer. This parallelizes both the validation and the
+/// scan, which is where std-only tarn can pull level with a single-file ripgrep.
+/// Below the threshold (or on one core) it runs serially.
+/// Count distinct matching lines in one file for `find -c`, memory-mapping it to
+/// avoid a full-file copy and falling back to `fs::read` when mapping isn't
+/// available (non-Unix, empty file, map failure). Returns `None` to skip the
+/// file: a binary (NUL in the first 8 KiB) or anything not valid UTF-8 — exactly
+/// what the regular read+`from_utf8` path skips.
+fn scan_count(path: &Path, pat: &str) -> Option<usize> {
+    let is_binary = |b: &[u8]| b.iter().take(8192).any(|&x| x == 0);
+    #[cfg(unix)]
+    if let Some(map) = mmap::Mapped::open(path) {
+        let bytes = map.bytes();
+        if is_binary(bytes) {
+            return None;
+        }
+        return count_matching_lines_par_bytes(bytes, pat);
+    }
+    let bytes = fs::read(path).ok()?;
+    if is_binary(&bytes) {
+        return None;
+    }
+    count_matching_lines_par_bytes(&bytes, pat)
+}
+
+fn count_matching_lines_par_bytes(bytes: &[u8], pat: &str) -> Option<usize> {
+    const PAR_THRESHOLD: usize = 4 * 1024 * 1024; // 4 MiB
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    if threads <= 1 || bytes.len() < PAR_THRESHOLD {
+        let content = std::str::from_utf8(bytes).ok()?;
+        return Some(count_matching_lines(content, pat));
+    }
+
+    // Cut the buffer into `threads` slices, each ending just after a newline.
+    let approx = bytes.len() / threads;
+    let mut bounds = vec![0usize];
+    for k in 1..threads {
+        let mut p = (approx * k).min(bytes.len());
+        while p < bytes.len() && bytes[p] != b'\n' {
+            p += 1;
+        }
+        if p < bytes.len() {
+            p += 1;
+        }
+        bounds.push(p);
+    }
+    bounds.push(bytes.len());
+    bounds.dedup();
+
+    std::thread::scope(|s| {
+        let handles: Vec<_> = bounds
+            .windows(2)
+            .map(|w| {
+                let chunk = &bytes[w[0]..w[1]];
+                s.spawn(move || {
+                    std::str::from_utf8(chunk)
+                        .ok()
+                        .map(|c| count_matching_lines(c, pat))
+                })
+            })
+            .collect();
+        // Any chunk that isn't valid UTF-8 (or a panicked thread) → the whole
+        // file is treated as non-text and skipped, matching the serial path.
+        let mut total = 0;
+        for h in handles {
+            total += h.join().ok().flatten()?;
+        }
+        Some(total)
+    })
 }
 
 /// Count the distinct lines containing `pat` (case-sensitive substring) using a
@@ -2647,6 +2814,40 @@ mod tests {
         assert!(!can_fast_count("port", false, true)); // -w
         assert!(!can_fast_count("o\r", false, false)); // CR in pattern
         assert!(!can_fast_count("c\nd", false, false)); // LF in pattern (spans lines)
+    }
+
+    #[test]
+    fn par_bytes_count_matches_serial_and_skips_non_utf8() {
+        // Serial path (below the parallel threshold).
+        assert_eq!(
+            count_matching_lines_par_bytes(b"a hit\nno\nhit\n", "hit"),
+            Some(2)
+        );
+        // Not valid UTF-8 → None (file is skipped, like the serial from_utf8 path).
+        assert_eq!(
+            count_matching_lines_par_bytes(&[0x68, 0x69, 0xff, 0xfe, 0x0a], "hi"),
+            None
+        );
+        // Parallel path: a >4 MiB buffer must equal the serial count exactly,
+        // proving the per-chunk split (at newline boundaries) is faithful.
+        let mut big = String::new();
+        for i in 0..400_000 {
+            if i % 10 == 0 {
+                big.push_str("needle in this line of text\n");
+            } else {
+                big.push_str("just some filler text here padding\n");
+            }
+        }
+        assert!(
+            big.len() > 4 * 1024 * 1024,
+            "must exceed the parallel threshold"
+        );
+        let expected = count_matching_lines(&big, "needle");
+        assert_eq!(expected, 40_000);
+        assert_eq!(
+            count_matching_lines_par_bytes(big.as_bytes(), "needle"),
+            Some(expected)
+        );
     }
 
     #[test]

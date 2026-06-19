@@ -37,13 +37,13 @@ dependencies.
 - **An editor for humans, a toolkit for agents.** A real full-screen TUI when you
   open a file in a terminal; a precise, scriptable CLI — navigate, edit, refactor,
   verify — everywhere else, with meaningful exit codes and `--json` output.
-- **Fast on purpose.** One substring searcher per file (not rebuilt per line),
-  lazy line iteration, NUL/UTF-8 binary-skipping, one structure-parse per file.
-  On a 289 MB corpus, `tarn find -c` counts 99k matches in **~0.2 s** — roughly
-  **8× faster than the system grep** (ugrep) on the same box. Dedicated SIMD
-  scanners like ripgrep are faster still (~0.05 s); tarn trades that last slice
-  of speed for zero dependencies and a codebase you can read in one sitting.
-  (Numbers are reproducible — see [Performance](#performance).)
+- **Fast on purpose — with zero dependencies.** `tarn find -c` memory-maps the
+  file and counts matching lines across every core (`mmap` + `std::thread`, no
+  crates). On a 10-core box it lands at **parity with — often a hair ahead of —
+  ripgrep** on large-file counting (~45–55 ms on ~380 MB), and is ~8× faster than
+  the system grep. ripgrep's SIMD still wins on a single core or for full match
+  *output*; tarn's trick is using all your cores on the parts that parallelize.
+  (Reproducible — see [Performance](#performance).)
 
 <div align="center">
 <br>
@@ -142,12 +142,12 @@ tarn find   src/   TODO --ext rs,toml   # only search .rs and .toml files (-t al
 tarn find   app.py -- '--flag' # use -- to search a pattern that starts with a dash
 ```
 
-**Fast on purpose.** `find` reads bytes, skips binaries, and matches without
-allocating per line; `--enclosing` parses each file's structure once, not once
-per hit. On a 14 MB / 1,200-file tree it's ~2.5× quicker than the system grep
-with identical counts (a parallel-SIMD tool like ripgrep is still faster at raw
-throughput — but it can't hand you the enclosing definition, an outline, or a
-surgical edit).
+**Fast on purpose.** `find` matches without allocating per line, skips binaries,
+and parses each file's structure once (only when `--enclosing` needs it). For
+counting (`-c`) it memory-maps and scans across all cores — at parity with
+ripgrep on a large file, ~8× the system grep (see [Performance](#performance)).
+And it hands you the enclosing definition, an outline, or a surgical edit, which
+a raw scanner won't.
 
 `find` takes a file *or a directory* — pointed at a dir it recurses (skipping
 hidden entries and `target`/`node_modules`/`dist`/`build`, and non-text files),
@@ -448,26 +448,34 @@ PORT=8080
 
 ## Performance
 
-tarn is std-only — no SIMD crate, no mmap — so it won't out-run a dedicated
-scanner like ripgrep. The goal is to be *fast enough that you never reach for
-grep*, and it clears that bar comfortably.
+tarn has **zero crate dependencies** — no SIMD-`memchr` crate, no regex engine.
+ripgrep's per-byte scan is faster than anything you'll hand-write in std. So tarn
+wins back the difference a different way: it uses *all your cores* and skips the
+file copy. ripgrep searches a single file on one thread; `tarn find -c` memory-maps
+the file (`mmap`, via libc FFI — no crate) and counts matching lines across every
+core with `std::thread`. `\n` is always a UTF-8 boundary, so each chunk validates
+and counts independently and the sum is exact.
 
-Measured on an Apple Silicon laptop against a **289 MB** single-file corpus of
-real source (≈7.3 M lines), counting the 99,197 lines that contain `function`,
-best of 9 runs:
+Measured on a 10-core Apple Silicon laptop against a **~380 MB** single-file
+corpus of real source, counting the lines that contain `function`, warm cache,
+best of 9:
 
 | tool | `-c` (count) | vs tarn |
 | --- | --- | --- |
-| **`tarn find -c`** | **~204 ms** | — |
+| **`tarn find -c`** | **~45–55 ms** | — |
+| `ripgrep -c` | ~55–57 ms | **at parity — tarn edges it** |
 | `ugrep -c` (the system `grep` here) | ~1758 ms | tarn **~8.6× faster** |
-| `ripgrep -c` | ~48 ms | ripgrep ~4× faster than tarn |
 
-What makes `find` quick without SIMD: it builds **one** substring searcher per
-file (std's Two-Way) and reuses it across the whole buffer instead of rebuilding
-it per line, iterates lines lazily (no `Vec<&str>` of every line), skips binaries
-on a cheap NUL probe, and parses structure at most once per file — and only when
-`--enclosing` needs it. Reproduce it yourself: build `--release`, point `tarn
-find -c` and your `grep`/`rg` at any large file, and compare.
+So on a multi-core machine, std-only tarn lands at parity with — and often a hair
+ahead of — ripgrep on large-file counting, while staying dependency-free. (On a
+single core, or for full match *output* rather than `-c`, ripgrep's SIMD still
+wins; tarn's edge is the parallel count.) Reproduce it: build `--release` and
+point `tarn find -c` and `rg -c` at any large file.
+
+The structure-aware path (`outline`/`defs`/`refs`/`peek`) is separately fast:
+its parser is allocation-free on the hot line scan, and the diff renderer trims
+the common prefix/suffix so a one-line change in a 40k-line file diffs in ~26 ms
+instead of ~7 s.
 
 The structure pass behind `outline`/`defs`/`refs`/`peek` is allocation-free on
 the hot path (it does a byte-prefix keyword test per line, not a `format!` per
