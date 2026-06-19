@@ -70,8 +70,17 @@ exit-code/`--json` conventions.
 
 ## Install
 
+From a clone (works today, zero setup):
+
 ```sh
 cargo install --path .      # builds + installs `tarn` to ~/.cargo/bin
+```
+
+From crates.io — the crate is named `tarn-cli` (the name `tarn` was taken), but
+the command it installs is `tarn`:
+
+```sh
+cargo install tarn-cli      # once published
 ```
 
 Or build and place it yourself:
