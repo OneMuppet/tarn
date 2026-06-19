@@ -307,7 +307,8 @@ def main():
     fn markdown_ignores_fenced_code() {
         // a `#` line inside a ``` fence is code, not a heading
         let md = "# Real\n\n```\n# not a heading\n## also not\n```\n\n## After\n";
-        let names: Vec<&str> = outline("doc.md", md).iter().map(|d| d.name.as_str()).collect();
+        let defs = outline("doc.md", md);
+        let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
         assert_eq!(names, vec!["Real", "After"]);
     }
 
