@@ -157,14 +157,11 @@ enum Op {
     Ins(String),
 }
 
-/// A compact, line-numbered diff of `old` -> `new`, with `context` unchanged
-/// lines around each change and `⋯` where unchanged runs are skipped.
-pub fn diff(old: &str, new: &str, color: bool) -> String {
-    let a: Vec<&str> = old.lines().collect();
-    let b: Vec<&str> = new.lines().collect();
+/// Edit script (Eq/Del/Ins) aligning `a` -> `b` via a longest-common-subsequence
+/// table. O(n·m) time and space, so `align` trims the common ends first and only
+/// calls this on the part that differs.
+fn lcs_ops(a: &[&str], b: &[&str]) -> Vec<Op> {
     let (n, m) = (a.len(), b.len());
-
-    // Longest common subsequence table (suffix form).
     let mut dp = vec![vec![0u32; m + 1]; n + 1];
     for i in (0..n).rev() {
         for j in (0..m).rev() {
@@ -175,9 +172,7 @@ pub fn diff(old: &str, new: &str, color: bool) -> String {
             };
         }
     }
-
-    // Walk the table into an edit script.
-    let mut ops: Vec<Op> = Vec::new();
+    let mut ops = Vec::new();
     let (mut i, mut j) = (0, 0);
     while i < n && j < m {
         if a[i] == b[j] {
@@ -200,6 +195,40 @@ pub fn diff(old: &str, new: &str, color: bool) -> String {
         ops.push(Op::Ins(b[j].to_string()));
         j += 1;
     }
+    ops
+}
+
+/// Align `a` -> `b` into an Eq/Del/Ins script. Trims the common prefix and
+/// suffix (emitting them as Eq) and runs the quadratic LCS only on the differing
+/// middle — so a one-line change in a 40k-line file builds a tiny table, not a
+/// 40k×40k one. The result is always a faithful alignment (its Eq+Del stream is
+/// `a`, its Eq+Ins stream is `b`); the exact anchoring of repeated lines may
+/// differ from a full-matrix LCS, which is fine for a human-readable preview.
+fn align(a: &[&str], b: &[&str]) -> Vec<Op> {
+    let pre = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let suf = a[pre..]
+        .iter()
+        .rev()
+        .zip(b[pre..].iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    let mut ops: Vec<Op> = Vec::new();
+    for line in &a[..pre] {
+        ops.push(Op::Eq((*line).to_string()));
+    }
+    ops.extend(lcs_ops(&a[pre..a.len() - suf], &b[pre..b.len() - suf]));
+    for line in &a[a.len() - suf..] {
+        ops.push(Op::Eq((*line).to_string()));
+    }
+    ops
+}
+
+/// A compact, line-numbered diff of `old` -> `new`, with `context` unchanged
+/// lines around each change and `⋯` where unchanged runs are skipped.
+pub fn diff(old: &str, new: &str, color: bool) -> String {
+    let a: Vec<&str> = old.lines().collect();
+    let b: Vec<&str> = new.lines().collect();
+    let ops = align(&a, &b);
 
     const CONTEXT: usize = 3;
     let changed: Vec<bool> = ops.iter().map(|o| !matches!(o, Op::Eq(_))).collect();
@@ -215,7 +244,7 @@ pub fn diff(old: &str, new: &str, color: bool) -> String {
         })
         .collect();
 
-    let gw = n.max(m).max(1).to_string().len().max(2);
+    let gw = a.len().max(b.len()).max(1).to_string().len().max(2);
     let mut out = String::new();
     let (mut anum, mut bnum) = (0usize, 0usize); // 1-based as we advance
     let mut skipping = false;
@@ -984,6 +1013,65 @@ mod tests {
     #[test]
     fn diff_no_change() {
         assert!(diff("a\n", "a\n", false).contains("no changes"));
+    }
+
+    #[test]
+    fn align_is_always_a_faithful_alignment() {
+        // Exhaustively over a small alphabet/length: whatever alignment `align`
+        // picks, its Eq+Del stream must reproduce `a` and its Eq+Ins stream must
+        // reproduce `b`. This guards correctness without pinning a specific
+        // (valid) alignment — the property the prefix/suffix trim must preserve.
+        fn seqs<'a>(alpha: &[&'a str], maxlen: usize) -> Vec<Vec<&'a str>> {
+            let mut out = vec![vec![]];
+            let mut frontier = vec![vec![]];
+            for _ in 0..maxlen {
+                let mut next = Vec::new();
+                for s in &frontier {
+                    for &c in alpha {
+                        let mut t = s.clone();
+                        t.push(c);
+                        next.push(t);
+                    }
+                }
+                out.extend(next.clone());
+                frontier = next;
+            }
+            out
+        }
+        let alpha = ["x", "y", "z"];
+        let space = seqs(&alpha, 4);
+        for a in &space {
+            for b in &space {
+                let ops = align(a, b);
+                let from_a: Vec<&str> = ops
+                    .iter()
+                    .filter_map(|o| match o {
+                        Op::Eq(t) | Op::Del(t) => Some(t.as_str()),
+                        Op::Ins(_) => None,
+                    })
+                    .collect();
+                let from_b: Vec<&str> = ops
+                    .iter()
+                    .filter_map(|o| match o {
+                        Op::Eq(t) | Op::Ins(t) => Some(t.as_str()),
+                        Op::Del(_) => None,
+                    })
+                    .collect();
+                assert_eq!(from_a, *a, "Eq+Del must reproduce a");
+                assert_eq!(from_b, *b, "Eq+Ins must reproduce b");
+            }
+        }
+    }
+
+    #[test]
+    fn diff_prefix_suffix_trim_keeps_correct_line_numbers() {
+        // A change in the middle of a longer file: numbering must survive the trim.
+        let old = "1\n2\n3\nFOUR\n5\n6\n7\n";
+        let new = "1\n2\n3\nIV\n5\n6\n7\n";
+        let d = diff(old, new, false);
+        assert!(d.lines().any(|l| l.starts_with('-') && l.contains("FOUR")));
+        assert!(d.lines().any(|l| l.starts_with('+') && l.contains("IV")));
+        assert!(d.contains("4 "), "changed line's gutter reads 4: {d}");
     }
 
     #[test]
