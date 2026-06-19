@@ -108,6 +108,7 @@ pub fn keys(content: &str) -> Vec<String> {
 /// appended. The value is written verbatim — the caller owns any quoting. The
 /// result always ends with exactly one trailing newline.
 pub fn set(content: &str, key: &str, value: &str) -> String {
+    let end = line_ending(content);
     let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
     let mut replaced = false;
 
@@ -125,12 +126,13 @@ pub fn set(content: &str, key: &str, value: &str) -> String {
         lines.push(format!("{key}={value}"));
     }
 
-    finish(lines)
+    finish(lines, end)
 }
 
 /// Remove every line that assigns `key`. Other lines (including comments and
 /// blanks) are preserved exactly.
 pub fn unset(content: &str, key: &str) -> String {
+    let end = line_ending(content);
     let lines: Vec<String> = content
         .lines()
         .filter(|line| match parse_key_line(line) {
@@ -140,17 +142,32 @@ pub fn unset(content: &str, key: &str) -> String {
         .map(|l| l.to_string())
         .collect();
 
-    finish(lines)
+    finish(lines, end)
 }
 
-/// Join lines back together with a single trailing newline. An empty result is
-/// the empty string (no stray newline).
-fn finish(lines: Vec<String>) -> String {
+/// The file's line ending (CRLF if its first line ends in `\r\n`, else LF), so an
+/// edit preserves it instead of normalizing — consistent with the text/config
+/// editors.
+fn line_ending(content: &str) -> &'static str {
+    let crlf = content
+        .find('\n')
+        .map(|i| i > 0 && content.as_bytes()[i - 1] == b'\r')
+        .unwrap_or(false);
+    if crlf {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
+/// Join lines back together using `ending`, with one trailing `ending`. An empty
+/// result is the empty string (no stray newline).
+fn finish(lines: Vec<String>, ending: &str) -> String {
     if lines.is_empty() {
         String::new()
     } else {
-        let mut s = lines.join("\n");
-        s.push('\n');
+        let mut s = lines.join(ending);
+        s.push_str(ending);
         s
     }
 }
@@ -228,6 +245,13 @@ FOO=2
     fn always_single_trailing_newline() {
         assert!(set("A=1", "A", "2").ends_with("2\n"));
         assert!(!set("A=1", "A", "2").ends_with("\n\n"));
+    }
+
+    #[test]
+    fn preserves_crlf_line_endings() {
+        let crlf = "HOST=localhost\r\nPORT=8000\r\n";
+        assert_eq!(set(crlf, "PORT", "9090"), "HOST=localhost\r\nPORT=9090\r\n");
+        assert_eq!(unset(crlf, "HOST"), "PORT=8000\r\n");
     }
 
     #[test]

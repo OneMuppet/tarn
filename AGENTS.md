@@ -20,7 +20,7 @@ focused help. Build with `cargo build --release`; binary at `target/release/tarn
   defensive re-read.
 - **Changes are previewable and atomic.** `--dry-run` previews; `apply` runs a
   batch (even across files) all-or-nothing with rollback.
-- **Everything is `--json`.** Pipe results from one command into the next.
+- **`--json` on read & edit commands.** Pipe results from one command into the next. (`diff` and config `get` return raw values, not JSON.)
 
 ## The everyday loop
 
@@ -61,6 +61,7 @@ tarn check src/server.rs             # 6. verify you left no junk
   `3` guard (`--expect`) failed. Branch on these.
 - **`--json`** on read commands returns structured data; on edits returns a result
   object. Use it to chain.
+- **`apply` op text is verbatim** — no shell quoting; the text after the line number is written exactly (use `--dry-run` to preview).
 - **Color** is auto-off when output isn't a TTY (so chat output is clean); force
   with `--color` / `--plain`.
 - **Heuristic, not a parser.** Structure (`outline`/`peek`/`--enclosing`) uses
