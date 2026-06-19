@@ -362,6 +362,7 @@ src/envfile.rs    surgical get/set/unset/keys
 src/textfile.rs   line-addressable replace/insert/delete
 src/render.rs     the `show` snapshot view + `--diff` renderer
 src/structure.rs  heuristic outline / enclosing-scope detection
+src/help.rs       agent-native manifest (`help --json`) + per-command help
 ```
 
 ## License

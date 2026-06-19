@@ -7,6 +7,7 @@
 
 mod editor;
 mod envfile;
+mod help;
 mod json;
 mod render;
 mod structure;
@@ -70,6 +71,7 @@ fn run(args: &[String]) -> u8 {
             print_usage();
             EXIT_OK
         }
+        "help" => cmd_help(&args[1..]),
         "--version" | "-V" => {
             println!("tarn {VERSION}");
             EXIT_OK
@@ -1377,6 +1379,32 @@ fn usage_err(form: &str) -> u8 {
     EXIT_USAGE
 }
 
+/// `help [command] [--json]` — the agent-native interface.
+/// `help` → overview · `help <cmd>` → focused help · `help --json` → manifest.
+fn cmd_help(args: &[String]) -> u8 {
+    if args.iter().any(|a| a == "--json") {
+        print!("{}", help::manifest_json(VERSION));
+        let _ = io::stdout().flush();
+        return EXIT_OK;
+    }
+    match args.iter().find(|a| !a.starts_with('-')) {
+        Some(name) => match help::command_help(name) {
+            Some(h) => {
+                print!("{h}");
+                EXIT_OK
+            }
+            None => {
+                eprintln!("tarn: no such command '{name}' (try `tarn help`)");
+                EXIT_USAGE
+            }
+        },
+        None => {
+            print_usage();
+            EXIT_OK
+        }
+    }
+}
+
 fn print_usage() {
     println!(
         "tarn {VERSION} — a tiny, understandable terminal editor + scriptable .env tool
@@ -1420,6 +1448,8 @@ USAGE:
     tarn keys  <file>           list keys, one per line (alias: list)
     tarn view  <file>           print the file       (alias: cat) [--numbers]
 
+    tarn help [command]         focused help for one command
+    tarn help --json            machine-readable manifest (for agents)
     tarn --help | -h            tarn --version | -V
 
 EDITOR KEYS:
