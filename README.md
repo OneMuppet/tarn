@@ -147,8 +147,10 @@ one recursive pass, grouped by file — orient in an unfamiliar codebase without
 opening a thing. `--depth N` limits nesting (`--depth 0` = top-level only).
 
 Structure is **heuristic, not semantic** — tarn has no language parser (zero
-deps). It uses extension-aware keyword patterns (`def`/`class`/`fn`/`func`/
-`function`/`struct`/… and Markdown `#` headings); nesting depth comes from
+deps). It uses extension-aware keyword patterns — Python, Rust, JS/TS, Go, Ruby,
+PHP, Swift, Kotlin (incl. `data`/`suspend` modifiers), and class/type-level for
+Java/C#/C/C++, plus Markdown `#` headings, with a keyword union as the fallback;
+nesting depth comes from
 indentation/heading level, and a def's extent from indentation. That nails the
 common case; a def whose body holds an unindented multi-line string may report a
 short end range. `find` is literal substring (`-i` = ASCII case-insensitive),

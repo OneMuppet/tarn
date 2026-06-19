@@ -39,6 +39,39 @@ fn rules_for(path: &str) -> Rules {
             js: true,
         },
         "go" => Rules { markdown: false, keywords: &["func", "type"], js: false },
+        "rb" => Rules { markdown: false, keywords: &["def", "class", "module"], js: false },
+        "php" => Rules {
+            markdown: false,
+            keywords: &["function", "class", "interface", "trait", "enum"],
+            js: false,
+        },
+        "swift" => Rules {
+            markdown: false,
+            keywords: &["func", "class", "struct", "enum", "protocol", "extension"],
+            js: false,
+        },
+        "kt" | "kts" => Rules {
+            markdown: false,
+            keywords: &["fun", "class", "object", "interface", "enum"],
+            js: false,
+        },
+        // Class/type level for languages whose methods are `returnType name(...)`
+        // (no leading keyword we can key off without a parser).
+        "java" => Rules {
+            markdown: false,
+            keywords: &["class", "interface", "enum", "record"],
+            js: false,
+        },
+        "cs" => Rules {
+            markdown: false,
+            keywords: &["class", "interface", "struct", "enum", "namespace", "record"],
+            js: false,
+        },
+        "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" => Rules {
+            markdown: false,
+            keywords: &["struct", "class", "enum", "namespace", "union"],
+            js: false,
+        },
         _ => Rules {
             markdown: false,
             keywords: &[
@@ -52,7 +85,8 @@ fn rules_for(path: &str) -> Rules {
 
 const MODIFIERS: &[&str] = &[
     "pub", "export", "default", "async", "static", "public", "private", "protected", "final",
-    "abstract",
+    "abstract", "open", "override", "suspend", "internal", "sealed", "data", "inline", "partial",
+    "virtual", "readonly", "fileprivate", "companion", "unsafe", "extern", "lateinit",
 ];
 
 fn indent(line: &str) -> usize {
@@ -321,6 +355,26 @@ def main():
         assert_eq!(b.name, "do_POST");
         // a line that starts a def returns that def exactly
         assert_eq!(block_at("h.py", PY, 3).unwrap().name, "Handler");
+    }
+
+    #[test]
+    fn broader_language_coverage() {
+        let names = |path: &str, src: &str| -> Vec<String> {
+            outline(path, src).iter().map(|d| d.name.clone()).collect()
+        };
+        let has = |v: &[String], n: &str| v.iter().any(|x| x == n);
+        // Kotlin: modifiers stripped, fun/class detected
+        let kt = names("a.kt", "data class User(val n: Int)\n\nsuspend fun fetch() {\n    todo()\n}\n");
+        assert!(has(&kt, "User") && has(&kt, "fetch"), "{kt:?}");
+        // Swift
+        let sw = names("a.swift", "struct Point {\n    func dist() -> Double { 0 }\n}\n");
+        assert!(has(&sw, "Point") && has(&sw, "dist"), "{sw:?}");
+        // Ruby
+        let rb = names("a.rb", "class Cli\n  def run\n  end\nend\n");
+        assert!(has(&rb, "Cli") && has(&rb, "run"), "{rb:?}");
+        // Java: class-level (methods are returnType name(), not keyword-led)
+        let jv = names("a.java", "public class Foo {\n  void bar() {}\n}\n");
+        assert!(has(&jv, "Foo"), "{jv:?}");
     }
 
     #[test]
