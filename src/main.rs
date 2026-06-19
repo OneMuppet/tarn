@@ -683,6 +683,7 @@ fn cmd_find(args: &[String]) -> u8 {
     let mut color_pref: Option<bool> = None;
     let mut count_only = false;
     let mut files_only = false;
+    let mut word = false;
     let mut ctx_before = 0usize;
     let mut ctx_after = 0usize;
     let mut end_flags = false; // set by `--`: everything after is positional
@@ -699,6 +700,7 @@ fn cmd_find(args: &[String]) -> u8 {
                     continue;
                 }
                 "-i" | "--ignore-case" => ignore_case = true,
+                "-w" | "--word" => word = true,
                 "--enclosing" => enclosing = true,
                 "--json" => json = true,
                 "--count" | "-c" => count_only = true,
@@ -788,7 +790,7 @@ fn cmd_find(args: &[String]) -> u8 {
         let lines: Vec<&str> = content.lines().collect();
         let mut file_hit = false;
         for (idx, line) in lines.iter().enumerate() {
-            if !find_in(line.as_bytes(), needle, ignore_case) {
+            if !find_in(line.as_bytes(), needle, ignore_case, word) {
                 continue;
             }
             total += 1;
@@ -892,11 +894,12 @@ fn line_byte_span(content: &str, start: usize, end: usize) -> Option<(usize, usi
     Some((a, b))
 }
 
-/// Zero-allocation substring search over bytes. `ci` = ASCII case-insensitive.
-/// A UTF-8 needle matches the same byte sequence; case-folding is ASCII-only
-/// (the documented behavior of `-i`). Callers search line-by-line with the line
-/// terminator stripped, so CRLF is normalized — a literal `\r` won't match.
-fn find_in(hay: &[u8], needle: &[u8], ci: bool) -> bool {
+/// Zero-allocation substring search over bytes. `ci` = ASCII case-insensitive;
+/// `word` = whole-word only (boundaries are any non-`[A-Za-z0-9_]` byte, or the
+/// line edge). A UTF-8 needle matches the same byte sequence; case-folding is
+/// ASCII-only (the documented behavior of `-i`). Callers search line-by-line
+/// with the terminator stripped, so CRLF is normalized — a literal `\r` won't match.
+fn find_in(hay: &[u8], needle: &[u8], ci: bool, word: bool) -> bool {
     if needle.is_empty() {
         return true;
     }
@@ -904,6 +907,7 @@ fn find_in(hay: &[u8], needle: &[u8], ci: bool) -> bool {
         return false;
     }
     let eq = |a: u8, b: u8| if ci { a.eq_ignore_ascii_case(&b) } else { a == b };
+    let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
     let n0 = needle[0];
     'outer: for i in 0..=hay.len() - needle.len() {
         if !eq(hay[i], n0) {
@@ -912,6 +916,14 @@ fn find_in(hay: &[u8], needle: &[u8], ci: bool) -> bool {
         for k in 1..needle.len() {
             if !eq(hay[i + k], needle[k]) {
                 continue 'outer;
+            }
+        }
+        if word {
+            let end = i + needle.len();
+            let before_ok = i == 0 || !is_word(hay[i - 1]);
+            let after_ok = end == hay.len() || !is_word(hay[end]);
+            if !(before_ok && after_ok) {
+                continue 'outer; // keep scanning for a word-bounded hit
             }
         }
         return true;
@@ -1294,7 +1306,7 @@ USAGE:
         --depth N (limit nesting)  |  --json
     tarn peek    <file> <name>  show just the definition named <name>  [--json]
     tarn find    <path> <text>  search a file OR directory; hits with file+line
-        -i (ignore case) | --enclosing (tag hits w/ their def) | --limit N | --json
+        -i (ignore case) | -w (whole word) | --enclosing | --limit N | --json
         -c/--count (just the number) | -l/--files (just filenames)
         -C/-B/-A N  context lines (around / before / after each hit)
         --  <text>  search a pattern that starts with a dash
@@ -1310,7 +1322,7 @@ USAGE:
     tarn write   <file>                   replace file from stdin
     tarn apply   <file>                   batch ops from stdin, atomically
     tarn rename  <path> <old> <new>       whole-word rename in a file/dir
-        --in <def> (only within that definition) | --substring | --dry-run
+        --in <def> (within that def; first if names repeat) | --substring | --dry-run
     tarn json get <file> <path>           read a JSON value by path (a.b.0.c)
     tarn json set <file> <path> <value>   set it, preserving file formatting
         edit flags:  --diff (preview) | --json | --dry-run (don't write)
@@ -1366,11 +1378,24 @@ mod tests {
 
     #[test]
     fn find_in_matches_correctly() {
-        assert!(find_in(b"hello world", b"world", false));
-        assert!(!find_in(b"hello", b"World", false)); // case-sensitive
-        assert!(find_in(b"hello", b"ELLO", true)); // ASCII case-insensitive
-        assert!(find_in(b"abc", b"", false)); // empty needle matches
-        assert!(!find_in(b"ab", b"abc", false)); // needle longer than line
-        assert!(find_in("café".as_bytes(), "afé".as_bytes(), false)); // multibyte
+        assert!(find_in(b"hello world", b"world", false, false));
+        assert!(!find_in(b"hello", b"World", false, false)); // case-sensitive
+        assert!(find_in(b"hello", b"ELLO", true, false)); // ASCII case-insensitive
+        assert!(find_in(b"abc", b"", false, false)); // empty needle matches
+        assert!(!find_in(b"ab", b"abc", false, false)); // needle longer than line
+        assert!(find_in("café".as_bytes(), "afé".as_bytes(), false, false)); // multibyte
+    }
+
+    #[test]
+    fn find_in_word_boundaries() {
+        // whole-word: `port` matches standalone but not inside import/use_port/port2
+        assert!(find_in(b"the port is", b"port", false, true));
+        assert!(!find_in(b"import socket", b"port", false, true));
+        assert!(!find_in(b"use_port(x)", b"port", false, true));
+        assert!(!find_in(b"port2 = 1", b"port", false, true));
+        // a later word-bounded hit is still found past a non-bounded one
+        assert!(find_in(b"import port", b"port", false, true));
+        // word + case-insensitive together
+        assert!(find_in(b"The PORT", b"port", true, true));
     }
 }

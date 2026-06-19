@@ -86,6 +86,7 @@ tarn find   app.py 'send_' --json -i --limit 50
 tarn find   src/   'send_' -c    # just the count (like grep -c)
 tarn find   src/   'send_' -l    # just the filenames that match (like grep -l)
 tarn find   app.py 'send_' -C 3  # each hit with 3 lines of context (-A/-B too)
+tarn find   src/   port -w       # whole-word: matches `port`, not `import`/`use_port`
 tarn find   app.py -- '--flag' # use -- to search a pattern that starts with a dash
 ```
 
