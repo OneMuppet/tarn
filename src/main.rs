@@ -930,6 +930,7 @@ fn cmd_find(args: &[String]) -> u8 {
     let mut word = false;
     let mut ctx_before = 0usize;
     let mut ctx_after = 0usize;
+    let mut exts: Vec<String> = Vec::new(); // --ext rs,toml → only these extensions
     let mut end_flags = false; // set by `--`: everything after is positional
 
     let mut i = 0;
@@ -970,6 +971,13 @@ fn cmd_find(args: &[String]) -> u8 {
                     Some(n) => ctx_after = n,
                     None => return usage_err("find <path> <pattern> -A N"),
                 },
+                "--ext" | "-t" => {
+                    i += 1;
+                    match args.get(i) {
+                        Some(v) => exts = v.split(',').map(|e| e.trim().trim_start_matches('.').to_lowercase()).filter(|e| !e.is_empty()).collect(),
+                        None => return usage_err("find <dir> <pattern> --ext rs,toml"),
+                    }
+                }
                 // Once the file is known, the next token is the pattern verbatim
                 // (so patterns like `--json` are searchable; or use `--`).
                 s if s.starts_with('-') && file.is_none() => {
@@ -996,9 +1004,20 @@ fn cmd_find(args: &[String]) -> u8 {
         _ => return usage_err("find <path> <pattern> [-i] [--enclosing] [--json]   (-- to search a pattern starting with -)"),
     };
 
-    let files = collect_files(path);
+    let mut files = collect_files(path);
+    if !exts.is_empty() {
+        files.retain(|f| {
+            f.extension()
+                .map(|e| exts.iter().any(|x| x == &e.to_string_lossy().to_lowercase()))
+                .unwrap_or(false)
+        });
+    }
     if files.is_empty() {
-        eprintln!("tarn: no readable files at {path}");
+        if exts.is_empty() {
+            eprintln!("tarn: no readable files at {path}");
+        } else {
+            eprintln!("tarn: no files matching --ext under {path}");
+        }
         return EXIT_NOT_FOUND;
     }
     let multi = files.len() > 1;
@@ -1710,7 +1729,7 @@ USAGE:
     tarn peek    <file> <name>  show just the definition named <name>  [--json]
     tarn find    <path> <text>  search a file OR directory; hits with file+line
         -i (ignore case) | -w (whole word) | --enclosing | --limit N | --json
-        -c/--count (just the number) | -l/--files (just filenames)
+        -c/--count (just the number) | -l/--files (just filenames) | --ext rs,toml
         -C/-B/-A N  context lines (around / before / after each hit)
         --  <text>  search a pattern that starts with a dash
     tarn check   <file>         file-hygiene gate (0 clean / 1 issues)  [--json]
