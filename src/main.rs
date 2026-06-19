@@ -443,15 +443,39 @@ fn cmd_outline(args: &[String]) -> u8 {
 /// `rename <path> <old> <new> [--substring] [--dry-run] [--json] [--plain|--color]`
 /// Whole-word by default. `path` may be a file or directory (recursive).
 fn cmd_rename(args: &[String]) -> u8 {
-    let substring = args.iter().any(|a| a == "--substring");
-    let dry_run = args.iter().any(|a| a == "--dry-run");
-    let json = args.iter().any(|a| a == "--json");
-    let color_pref = color_flag(args);
+    let mut substring = false;
+    let mut dry_run = false;
+    let mut json = false;
+    let mut color_pref: Option<bool> = None;
+    let mut in_def: Option<&str> = None;
+    let mut pos: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--substring" => substring = true,
+            "--dry-run" => dry_run = true,
+            "--json" => json = true,
+            "--plain" => color_pref = Some(false),
+            "--color" => color_pref = Some(true),
+            "--in" => match args.get(i + 1) {
+                Some(name) => {
+                    in_def = Some(name);
+                    i += 1;
+                }
+                None => return usage_err("rename <path> <old> <new> --in <def>"),
+            },
+            s if s.starts_with("--") => {
+                eprintln!("tarn: unknown flag {s}");
+                return EXIT_USAGE;
+            }
+            s => pos.push(s),
+        }
+        i += 1;
+    }
     let word = !substring;
-    let pos: Vec<&str> = args.iter().map(|s| s.as_str()).filter(|s| !s.starts_with("--")).collect();
     let (path, old, new) = match (pos.first(), pos.get(1), pos.get(2)) {
         (Some(p), Some(o), Some(n)) => (*p, *o, *n),
-        _ => return usage_err("rename <path> <old> <new> [--substring] [--dry-run] [--json]"),
+        _ => return usage_err("rename <path> <old> <new> [--in <def>] [--substring] [--dry-run] [--json]"),
     };
     if old.is_empty() {
         return usage_err("rename: <old> must not be empty");
@@ -472,10 +496,25 @@ fn cmd_rename(args: &[String]) -> u8 {
             Ok(c) => c,
             Err(_) => continue,
         };
-        let (updated, count) = textfile::rename(&content, old, new, word);
+        let fname = f.to_string_lossy().to_string();
+        let (updated, count) = if let Some(name) = in_def {
+            // Scope the rename to the named definition's byte span; the rest of
+            // the file is left untouched.
+            match structure::def_named(&fname, &content, name)
+                .and_then(|d| line_byte_span(&content, d.line, d.end))
+            {
+                Some((a, b)) => {
+                    let (slice, count) = textfile::rename(&content[a..b], old, new, word);
+                    (format!("{}{}{}", &content[..a], slice, &content[b..]), count)
+                }
+                None => continue, // def not in this file
+            }
+        } else {
+            textfile::rename(&content, old, new, word)
+        };
         if count > 0 {
             total += count;
-            changes.push((f.to_string_lossy().to_string(), updated, count));
+            changes.push((fname, updated, count));
         }
     }
 
@@ -830,6 +869,27 @@ fn cmd_find(args: &[String]) -> u8 {
 /// clamped to the file (no underflow at the top, no overrun at the bottom).
 fn context_bounds(len: usize, idx: usize, before: usize, after: usize) -> (usize, usize) {
     (idx.saturating_sub(before), (idx + 1 + after).min(len))
+}
+
+/// Byte range `[a, b)` covering 1-based inclusive lines `start..=end`, including
+/// the newline ending `end`. Returns None if `start` is out of range.
+fn line_byte_span(content: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    if start == 0 {
+        return None;
+    }
+    // Byte offset where each line begins (line k → starts[k-1]).
+    let mut starts = vec![0usize];
+    for (i, b) in content.bytes().enumerate() {
+        if b == b'\n' {
+            starts.push(i + 1);
+        }
+    }
+    if start > starts.len() {
+        return None;
+    }
+    let a = starts[start - 1];
+    let b = if end < starts.len() { starts[end] } else { content.len() };
+    Some((a, b))
 }
 
 /// Zero-allocation substring search over bytes. `ci` = ASCII case-insensitive.
@@ -1250,7 +1310,7 @@ USAGE:
     tarn write   <file>                   replace file from stdin
     tarn apply   <file>                   batch ops from stdin, atomically
     tarn rename  <path> <old> <new>       whole-word rename in a file/dir
-        --substring (match anywhere) | --dry-run (preview)
+        --in <def> (only within that definition) | --substring | --dry-run
     tarn json get <file> <path>           read a JSON value by path (a.b.0.c)
     tarn json set <file> <path> <value>   set it, preserving file formatting
         edit flags:  --diff (preview) | --json | --dry-run (don't write)
@@ -1290,6 +1350,18 @@ mod tests {
         assert_eq!(context_bounds(10, 4, 0, 0), (4, 5));
         // window larger than the file clamps both ends
         assert_eq!(context_bounds(3, 1, 100, 100), (0, 3));
+    }
+
+    #[test]
+    fn line_byte_span_covers_inclusive_lines() {
+        let c = "alpha\nbeta\ngamma\n";
+        // lines 1..=2 → "alpha\nbeta\n"
+        let (a, b) = line_byte_span(c, 1, 2).unwrap();
+        assert_eq!(&c[a..b], "alpha\nbeta\n");
+        // line 3 alone → "gamma\n"
+        let (a, b) = line_byte_span(c, 3, 3).unwrap();
+        assert_eq!(&c[a..b], "gamma\n");
+        assert_eq!(line_byte_span(c, 0, 1), None);
     }
 
     #[test]

@@ -236,7 +236,11 @@ with `--dry-run`, then run for real — line endings are preserved untouched.
 tarn rename src/ oldName newName --dry-run   # preview: per-file counts, nothing written
 tarn rename src/ oldName newName             # apply (computes all, then writes)
 tarn rename config.ini old new --substring   # match anywhere, not just whole words
+tarn rename app.py x n --in alpha             # only within the definition named `alpha`
 ```
+
+`--in <def>` scopes the rename to a single named definition's body (per file),
+so a local rename never touches a same-named identifier elsewhere.
 
 Exit 1 if there were no occurrences. `--json` reports `{from,to,word,total,files:[…]}`.
 
