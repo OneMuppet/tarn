@@ -644,6 +644,8 @@ fn cmd_find(args: &[String]) -> u8 {
     let mut color_pref: Option<bool> = None;
     let mut count_only = false;
     let mut files_only = false;
+    let mut ctx_before = 0usize;
+    let mut ctx_after = 0usize;
     let mut end_flags = false; // set by `--`: everything after is positional
 
     let mut i = 0;
@@ -667,6 +669,21 @@ fn cmd_find(args: &[String]) -> u8 {
                 "--limit" => match next_usize(args, &mut i) {
                     Some(n) => limit = n,
                     None => return usage_err("find <file> <pattern> --limit N"),
+                },
+                "-C" | "--context" => match next_usize(args, &mut i) {
+                    Some(n) => {
+                        ctx_before = n;
+                        ctx_after = n;
+                    }
+                    None => return usage_err("find <path> <pattern> -C N"),
+                },
+                "-B" | "--before" => match next_usize(args, &mut i) {
+                    Some(n) => ctx_before = n,
+                    None => return usage_err("find <path> <pattern> -B N"),
+                },
+                "-A" | "--after" => match next_usize(args, &mut i) {
+                    Some(n) => ctx_after = n,
+                    None => return usage_err("find <path> <pattern> -A N"),
                 },
                 // Once the file is known, the next token is the pattern verbatim
                 // (so patterns like `--json` are searchable; or use `--`).
@@ -728,8 +745,10 @@ fn cmd_find(args: &[String]) -> u8 {
             None
         };
 
+        let want_ctx = ctx_before > 0 || ctx_after > 0;
+        let lines: Vec<&str> = content.lines().collect();
         let mut file_hit = false;
-        for (idx, line) in content.lines().enumerate() {
+        for (idx, line) in lines.iter().enumerate() {
             if !find_in(line.as_bytes(), needle, ignore_case) {
                 continue;
             }
@@ -740,11 +759,23 @@ fn cmd_find(args: &[String]) -> u8 {
             }
             if !count_only && matches.len() < limit {
                 let scope = defs.as_ref().and_then(|d| structure::qualified_in(d, idx + 1));
+                let (before, after) = if want_ctx {
+                    let lo = idx.saturating_sub(ctx_before);
+                    let hi = (idx + 1 + ctx_after).min(lines.len());
+                    (
+                        (lo..idx).map(|j| (j + 1, lines[j].to_string())).collect(),
+                        ((idx + 1)..hi).map(|j| (j + 1, lines[j].to_string())).collect(),
+                    )
+                } else {
+                    (Vec::new(), Vec::new())
+                };
                 matches.push(render::FindMatch {
                     file: f.to_string_lossy().to_string(),
                     line: idx + 1,
                     text: line.to_string(),
                     scope,
+                    before,
+                    after,
                 });
             }
         }
@@ -1200,6 +1231,7 @@ USAGE:
     tarn find    <path> <text>  search a file OR directory; hits with file+line
         -i (ignore case) | --enclosing (tag hits w/ their def) | --limit N | --json
         -c/--count (just the number) | -l/--files (just filenames)
+        -C/-B/-A N  context lines (around / before / after each hit)
         --  <text>  search a pattern that starts with a dash
     tarn check   <file>         file-hygiene gate (0 clean / 1 issues)  [--json]
 

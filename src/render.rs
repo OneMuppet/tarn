@@ -418,10 +418,13 @@ pub struct FindMatch {
     pub line: usize,
     pub text: String,
     pub scope: Option<(String, usize, usize)>,
+    pub before: Vec<(usize, String)>,
+    pub after: Vec<(usize, String)>,
 }
 
 /// Human-readable search results. When the hits span more than one file, they're
-/// grouped under per-file headers; a single file stays flat.
+/// grouped under per-file headers; a single file stays flat. With context lines,
+/// each hit becomes a block separated by a faint rule.
 pub fn find_view(pattern: &str, matches: &[FindMatch], files: usize, color: bool) -> String {
     let mut out = String::new();
     let scope_note = if files > 1 { format!(" in {files} files") } else { String::new() };
@@ -434,23 +437,44 @@ pub fn find_view(pattern: &str, matches: &[FindMatch], files: usize, color: bool
     out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(20))));
     out.push('\n');
 
-    let gw = matches.iter().map(|m| m.line).max().unwrap_or(1).to_string().len().max(2);
+    let has_ctx = matches.iter().any(|m| !m.before.is_empty() || !m.after.is_empty());
+    let max_line = matches
+        .iter()
+        .map(|m| m.after.last().map(|(n, _)| *n).unwrap_or(m.line))
+        .max()
+        .unwrap_or(1);
+    let gw = max_line.to_string().len().max(2);
+    let sep = paint(color, DIM, "│");
     let multi = files > 1;
     let mut cur = "";
+    let mut first_in_file = true;
     for m in matches {
         if multi && m.file != cur {
             out.push_str(&paint(color, &format!("{COPPER}{BOLD}"), &m.file));
             out.push('\n');
             cur = &m.file;
+            first_in_file = true;
+        }
+        if has_ctx && !first_in_file {
+            out.push_str(&paint(color, DIM, "┄"));
+            out.push('\n');
+        }
+        for (n, t) in &m.before {
+            let num = paint(color, DIM, &format!("{:>w$}", n, w = gw));
+            out.push_str(&format!("{num} {sep} {}\n", paint(color, DIM, t.trim_end())));
         }
         let num = paint(color, &format!("{COPPER}{BOLD}"), &format!("{:>w$}", m.line, w = gw));
-        let sep = paint(color, DIM, "│");
         let mut line = format!("{num} {sep} {}", m.text.trim_end());
         if let Some((scope, a, b)) = &m.scope {
             line.push_str(&paint(color, DIM, &format!("   ↳ {scope} ({a}–{b})")));
         }
         out.push_str(&line);
         out.push('\n');
+        for (n, t) in &m.after {
+            let num = paint(color, DIM, &format!("{:>w$}", n, w = gw));
+            out.push_str(&format!("{num} {sep} {}\n", paint(color, DIM, t.trim_end())));
+        }
+        first_in_file = false;
     }
     out.push_str(&paint(color, COPPER, &format!("└{}", "─".repeat(48))));
     out.push('\n');
@@ -460,6 +484,13 @@ pub fn find_view(pattern: &str, matches: &[FindMatch], files: usize, color: bool
 /// Machine-readable search results. `total` is the full match count; `matches`
 /// may be fewer (capped by `--limit`), so a consumer can tell it was truncated.
 pub fn find_json(pattern: &str, matches: &[FindMatch], total: usize) -> String {
+    let ctx = |lines: &[(usize, String)]| -> String {
+        let items: Vec<String> = lines
+            .iter()
+            .map(|(n, t)| format!("{{\"n\":{},\"text\":{}}}", n, jstr(t.trim_end())))
+            .collect();
+        format!("[{}]", items.join(","))
+    };
     let items: Vec<String> = matches
         .iter()
         .map(|m| {
@@ -467,12 +498,18 @@ pub fn find_json(pattern: &str, matches: &[FindMatch], total: usize) -> String {
                 Some((name, a, b)) => format!(",\"in\":{},\"range\":[{},{}]", jstr(name), a, b),
                 None => String::new(),
             };
+            let context = if m.before.is_empty() && m.after.is_empty() {
+                String::new()
+            } else {
+                format!(",\"before\":{},\"after\":{}", ctx(&m.before), ctx(&m.after))
+            };
             format!(
-                "{{\"file\":{},\"line\":{},\"text\":{}{}}}",
+                "{{\"file\":{},\"line\":{},\"text\":{}{}{}}}",
                 jstr(&m.file),
                 m.line,
                 jstr(m.text.trim_end()),
-                scope
+                scope,
+                context
             )
         })
         .collect();
