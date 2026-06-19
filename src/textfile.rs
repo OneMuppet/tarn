@@ -163,10 +163,6 @@ pub enum Op {
     Delete(usize, usize),
 }
 
-/// Apply a batch of ops atomically. Every op is resolved against the original
-/// line numbers; expectations are checked first, conflicts (two ops touching the
-/// same line) are rejected, and the whole batch fails as a unit (returns `Err`)
-/// without producing partial output.
 /// Why an `apply` batch failed. Typed so the command layer maps it to the right
 /// exit code without sniffing the message: `Guard` = an `expect` didn't match
 /// the file (exit 3), `Usage` = the batch is malformed — out of range, or two
@@ -188,6 +184,10 @@ impl OpError {
     }
 }
 
+/// Apply a batch of ops atomically. Every op is resolved against the original
+/// line numbers; expectations are checked first, conflicts (two ops touching the
+/// same line) are rejected, and the whole batch fails as a unit (returns `Err`)
+/// without producing partial output.
 pub fn apply_ops(content: &str, ops: &[Op]) -> Result<String, OpError> {
     let (end, fin) = style(content);
     let orig: Vec<String> = split(content);
