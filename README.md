@@ -44,6 +44,19 @@ grep. Still zero dependencies.
 
 ---
 
+## For agents
+
+Any agent can learn tarn's whole surface in one call:
+
+```sh
+tarn help --json        # machine-readable manifest: every command, usage, examples, exit codes
+tarn help find          # focused help for one command
+```
+
+Drop [`AGENTS.md`](AGENTS.md) into your harness's context — it's a one-screen guide
+to why and how to use tarn over `grep`/`sed`/`cat`, the everyday loop, and the
+exit-code/`--json` conventions.
+
 ## Install
 
 ```sh
@@ -94,6 +107,7 @@ tarn find   src/   'send_' -c    # just the count (like grep -c)
 tarn find   src/   'send_' -l    # just the filenames that match (like grep -l)
 tarn find   app.py 'send_' -C 3  # each hit with 3 lines of context (-A/-B too)
 tarn find   src/   port -w       # whole-word: matches `port`, not `import`/`use_port`
+tarn find   src/   TODO --ext rs,toml   # only search .rs and .toml files (-t alias)
 tarn find   app.py -- '--flag' # use -- to search a pattern that starts with a dash
 ```
 
@@ -292,8 +306,10 @@ tarn json set config.json tags '["x","y"]' --diff   # valid JSON is used verbati
 ```
 
 `get` exits 1 if the path is absent; `set` never creates paths (exit 1 if absent)
-and takes `--dry-run`/`--diff`. It's hand-rolled, zero-dep, and JSON-only (a key
-that literally contains `.` isn't addressable).
+and takes `--dry-run`/`--diff`. `tarn json del <file> <path>` removes a member or
+array element with comma-aware splicing so the result stays valid JSON. It's
+hand-rolled, zero-dep, and JSON-only (a key that literally contains `.` isn't
+addressable).
 
 ### …and TOML, the same way
 
