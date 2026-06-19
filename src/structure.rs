@@ -219,8 +219,12 @@ fn detect(line: &str, rules: &Rules) -> Option<(String, String)> {
     }
 
     for kw in rules.keywords {
-        let matches =
-            t == *kw || t.starts_with(&format!("{kw} ")) || t.starts_with(&format!("{kw}!"));
+        // Allocation-free `t == kw` / `t` starts with `kw ` or `kw!`. The old
+        // form built `format!("{kw} ")` for every keyword on every line, which
+        // dominated outline's cost on large inputs.
+        let matches = t.strip_prefix(kw).is_some_and(|after| {
+            after.is_empty() || after.starts_with(' ') || after.starts_with('!')
+        });
         if matches {
             let mut rest = &t[kw.len()..];
             // `enum class Foo` (Kotlin, C++ scoped enums) / `enum struct Foo`:

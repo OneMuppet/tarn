@@ -459,6 +459,11 @@ on a cheap NUL probe, and parses structure at most once per file — and only wh
 `--enclosing` needs it. Reproduce it yourself: build `--release`, point `tarn
 find -c` and your `grep`/`rg` at any large file, and compare.
 
+The structure pass behind `outline`/`defs`/`refs`/`peek` is allocation-free on
+the hot path (it does a byte-prefix keyword test per line, not a `format!` per
+keyword per line) — parsing that same 289 MB file drops from ~10 s to ~1.5 s, so
+`tarn refs <symbol>` over a large tree stays interactive.
+
 ## Design notes
 
 - **Why `stty` instead of a crate?** It's always there, it's tiny, and it keeps

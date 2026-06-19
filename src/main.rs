@@ -1047,6 +1047,13 @@ fn cmd_refs(args: &[String]) -> u8 {
             .collect();
         let mut file_hit = false;
         for (idx, line) in content.lines().enumerate() {
+            // Cheap pre-filter: std's Two-Way `contains` skips the ~99% of lines
+            // that don't hold the substring at all, so the per-line word-boundary
+            // count only runs where it can find something. A word-bounded match
+            // always contains the substring, so this never drops a real use.
+            if !line.contains(name) {
+                continue;
+            }
             let lineno = idx + 1;
             let occ = word_occurrences(line.as_bytes(), needle);
             if occ == 0 {
