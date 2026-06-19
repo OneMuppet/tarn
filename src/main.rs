@@ -1122,11 +1122,33 @@ fn cmd_apply(args: &[String]) -> u8 {
     }
 
     if !flags.dry_run {
-        for (path, _, new) in &changes {
-            if let Err(e) = fs::write(path, new) {
-                eprintln!("tarn: cannot write {path}: {e}");
+        // Validation was all-or-nothing; keep the WRITE phase all-or-nothing too.
+        // If a write fails mid-batch, restore the files already written (best
+        // effort) so the transaction doesn't leave a partial result.
+        let mut written: Vec<&(String, String, String)> = Vec::new();
+        for change in &changes {
+            if let Err(e) = fs::write(&change.0, &change.2) {
+                let mut unrestored = Vec::new();
+                for done in &written {
+                    if fs::write(&done.0, &done.1).is_err() {
+                        unrestored.push(done.0.clone());
+                    }
+                }
+                if unrestored.is_empty() {
+                    eprintln!(
+                        "tarn: cannot write {}: {e} — rolled back, no changes applied",
+                        change.0
+                    );
+                } else {
+                    eprintln!(
+                        "tarn: cannot write {}: {e}. ROLLBACK INCOMPLETE — could not restore: {}",
+                        change.0,
+                        unrestored.join(", ")
+                    );
+                }
                 return EXIT_USAGE;
             }
+            written.push(change);
         }
     }
 

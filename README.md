@@ -236,8 +236,10 @@ Ops: `expect <N> <text>`, `replace <N> <text>`, `insert <after-N> <text>`,
 
 **Across files, too.** A `file <path>` line switches the target, so one batch can
 edit many files — and it stays **all-or-nothing across all of them**: every file's
-ops are validated and computed first, and nothing is written unless they all
-succeed (a failed `expect` anywhere aborts the whole transaction, exit 3).
+ops are validated and computed *before any write*, so a failed `expect`/range/
+conflict anywhere aborts the whole transaction with nothing written (exit 3 for
+`expect`). If a write itself fails mid-batch (read-only target, disk full), the
+files already written are rolled back (best effort) and the error says so.
 
 ```sh
 tarn apply --diff <<'OPS'
