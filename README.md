@@ -113,6 +113,7 @@ After an edit, a quick hygiene gate catches the junk edits tend to leave:
 
 ```sh
 tarn check app.py     # exit 0 if clean, 1 if issues (--json for details)
+tarn diff  a.py b.py  # compare two files (exit 0 same / 1 differ / 2 error)
 ```
 
 `check` flags trailing whitespace, indentation that mixes tabs and spaces, mixed
@@ -331,6 +332,16 @@ keys); a value is quoted only when a plain scalar would be unsafe, so the result
 is always valid YAML. Sequences (`- item`), flow collections (`[..]`/`{..}`),
 block scalars (`|`/`>`), anchors/aliases, and multi-document streams are tracked
 so parsing never misreads them — but `set` on them **errors rather than corrupt**.
+
+**Deleting keys.** `tarn toml del <file> <path>` and `tarn yaml del <file> <path>`
+remove a key's whole line, preserving everything else (comments, order, siblings)
+— the delete half of surgical config CRUD. They refuse (and leave the file
+untouched) on the same unsupported targets as `set`.
+
+```sh
+tarn toml del Cargo.toml dependencies.unused
+tarn yaml del deploy.yaml spec.replicas --diff
+```
 
 ## The scriptable side (for AI harnesses & scripts)
 
