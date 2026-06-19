@@ -351,31 +351,100 @@ fn is_toml_value(t: &str) -> bool {
     }
 }
 
-/// Strict-ish RFC3339 date / date-time / time (enough to keep real timestamps
-/// bare while rejecting things like `0.2.0`).
+/// A *real* (range-checked) RFC3339 date / date-time / local-time validator —
+/// not a char-class scan. Anything that isn't a complete, in-range value falls
+/// through to quoting, so `set` never emits a bare token tomllib would reject.
 fn is_datetime(t: &str) -> bool {
     let b = t.as_bytes();
-    // time-only: HH:MM:SS[.f]
-    if t.contains(':') && !t.contains('-') {
-        return b[0].is_ascii_digit()
-            && t.bytes().all(|c| c.is_ascii_digit() || matches!(c, b':' | b'.'));
+    // local time only: HH:MM:SS[.f]
+    if !t.contains('-') {
+        return parse_time(b, 0) == Some(b.len());
     }
-    // date prefix YYYY-MM-DD
-    if b.len() < 10 {
+    // date: YYYY-MM-DD with a real calendar check
+    if b.len() < 10 || b[4] != b'-' || b[7] != b'-' {
         return false;
     }
-    let date_ok = b[0..4].iter().all(u8::is_ascii_digit)
-        && b[4] == b'-'
-        && b[5..7].iter().all(u8::is_ascii_digit)
-        && b[7] == b'-'
-        && b[8..10].iter().all(u8::is_ascii_digit);
-    if !date_ok {
+    if !b[..4].iter().all(u8::is_ascii_digit) {
         return false;
     }
-    // optional time/offset after the date
-    t[10..]
-        .bytes()
-        .all(|c| c.is_ascii_digit() || matches!(c, b'T' | b't' | b' ' | b':' | b'.' | b'+' | b'-' | b'Z' | b'z'))
+    let year = ((b[0] - b'0') as u16) * 1000
+        + ((b[1] - b'0') as u16) * 100
+        + ((b[2] - b'0') as u16) * 10
+        + (b[3] - b'0') as u16;
+    let (month, day) = match (two(b, 5), two(b, 8)) {
+        (Some(m), Some(d)) => (m, d),
+        _ => return false,
+    };
+    if !(1..=9999).contains(&year) || !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
+        return false;
+    }
+    if b.len() == 10 {
+        return true; // local date
+    }
+    // date-time: separator (T/t/space) + time + optional offset
+    if !matches!(b[10], b'T' | b't' | b' ') {
+        return false;
+    }
+    let after_time = match parse_time(b, 11) {
+        Some(e) => e,
+        None => return false,
+    };
+    if after_time == b.len() {
+        return true; // local date-time, no offset
+    }
+    match b[after_time] {
+        b'Z' | b'z' => after_time + 1 == b.len(),
+        b'+' | b'-' => {
+            // ±HH:MM
+            after_time + 6 == b.len()
+                && matches!(two(b, after_time + 1), Some(h) if h <= 23)
+                && b[after_time + 3] == b':'
+                && matches!(two(b, after_time + 4), Some(m) if m <= 59)
+        }
+        _ => false,
+    }
+}
+
+/// Two ASCII digits at `i` as a value, or None.
+fn two(b: &[u8], i: usize) -> Option<u8> {
+    match (b.get(i), b.get(i + 1)) {
+        (Some(a), Some(c)) if a.is_ascii_digit() && c.is_ascii_digit() => {
+            Some((a - b'0') * 10 + (c - b'0'))
+        }
+        _ => None,
+    }
+}
+
+/// Parse `HH:MM:SS[.fff]` at `i`; return the end index, or None if malformed/out of range.
+fn parse_time(b: &[u8], i: usize) -> Option<usize> {
+    let h = two(b, i)?;
+    let m = two(b, i + 3)?;
+    let s = two(b, i + 6)?;
+    if h > 23 || m > 59 || s > 59 || b.get(i + 2) != Some(&b':') || b.get(i + 5) != Some(&b':') {
+        return None;
+    }
+    let mut j = i + 8;
+    if b.get(j) == Some(&b'.') {
+        j += 1;
+        let start = j;
+        while j < b.len() && b[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j == start {
+            return None; // '.' with no fractional digits
+        }
+    }
+    Some(j)
+}
+
+fn days_in_month(year: u16, month: u8) -> u8 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
+        2 => 28,
+        _ => 0,
+    }
 }
 
 fn is_number(t: &str) -> bool {
@@ -488,13 +557,22 @@ enabled = false
     #[test]
     fn set_never_emits_invalid_bare_value() {
         let doc = "v = \"x\"\n";
-        // semver / dotted / arbitrary words are NOT valid bare TOML → must be quoted
-        for bad in ["0.2.0", "1.2.3", "hello", "1.2.3-rc1", "a b"] {
+        // NOT valid bare TOML → must be quoted (semver, words, and date/time-shaped garbage)
+        for bad in [
+            "0.2.0", "1.2.3", "hello", "1.2.3-rc1", "a b",
+            "2024-13-99zzz", "9999-99-99", "0000-00-00", "2024-01-01zzzz", "1234-56-78",
+            "2024-01-15Tzzzz", "0000-00-00T00:00:00z", "2024-01-15.", "12:99:99", "99:99:99",
+            "1:2:3", "2024-01-15+", "2024-02-31", "0000-01-01",
+        ] {
             let out = set(doc, "v", bad).unwrap().unwrap();
             assert_eq!(out, format!("v = \"{bad}\"\n"), "{bad} must be quoted");
         }
         // genuine bare values stay bare
-        for good in ["42", "-1", "3.14", "1e9", "true", "false", "2024-01-15", "07:32:00"] {
+        for good in [
+            "42", "-1", "3.14", "1e9", "true", "false",
+            "2024-01-15", "07:32:00", "2024-02-29", "2024-01-15T07:32:00Z",
+            "2024-01-15T07:32:00.500+02:00", "2024-01-15 07:32:00",
+        ] {
             let out = set(doc, "v", good).unwrap().unwrap();
             assert_eq!(out, format!("v = {good}\n"), "{good} must be bare");
         }
