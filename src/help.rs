@@ -93,8 +93,8 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd {
         name: "json",
         group: "config",
-        usage: "tarn json get <file> <path>  |  tarn json set <file> <path> <value> [--dry-run|--diff]",
-        summary: "Read or set a JSON value by dot/index path (a.b.0.c), preserving the file's formatting (no reserialize).",
+        usage: "tarn json get|set|del <file> <path> [value] [--dry-run|--diff]",
+        summary: "Read, set, or delete a JSON value by dot/index path (a.b.0.c), preserving the file's formatting (no reserialize); del removes the member/element with comma-aware splicing.",
         examples: &["tarn json get config.json server.port", "tarn json set config.json server.port 9090"],
     },
     Cmd {

@@ -47,9 +47,9 @@ tarn check src/server.rs             # 6. verify you left no junk
 | Rewrite a file | `… \| tarn write <file>` |
 | Batch / cross-file edit | `… \| tarn apply [file]` (use `file <path>` lines; atomic) |
 | Rename (whole-word) | `tarn rename <path> <old> <new> [--in <def>] [--dry-run]` |
-| Read/set JSON config | `tarn json get\|set <file> <path> [value]` |
-| Read/set TOML config | `tarn toml get\|set <file> <path> [value]` |
-| Read/set YAML config | `tarn yaml get\|set <file> <path> [value]` |
+| Read/set/del JSON config | `tarn json get\|set\|del <file> <path> [value]` |
+| Read/set/del TOML config | `tarn toml get\|set\|del <file> <path> [value]` |
+| Read/set/del YAML config | `tarn yaml get\|set\|del <file> <path> [value]` |
 | Hygiene gate | `tarn check <file>` |
 | Diff two files | `tarn diff <a> <b>` (0 same / 1 differ / 2 error) |
 

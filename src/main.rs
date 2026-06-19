@@ -567,7 +567,34 @@ fn cmd_json(args: &[String]) -> u8 {
     match args.first().map(String::as_str) {
         Some("get") => json_get(&args[1..]),
         Some("set") => json_set(&args[1..]),
-        _ => usage_err("json get <file> <path>   |   json set <file> <path> <value>"),
+        Some("del") => json_del(&args[1..]),
+        _ => usage_err("json get|set|del <file> <path> [value]"),
+    }
+}
+
+fn json_del(args: &[String]) -> u8 {
+    let flags = parse_edit_flags(args);
+    let (file, path) = match (flags.rest.first(), flags.rest.get(1)) {
+        (Some(f), Some(p)) => (f.as_str(), p.as_str()),
+        _ => return usage_err("json del <file> <path> [--dry-run|--diff]"),
+    };
+    let old = match fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
+    match json::del(&old, path) {
+        Ok(Some(new)) => commit(file, "json del", &flags, &old, &new),
+        Ok(None) => {
+            eprintln!("tarn: path not found: {path}");
+            EXIT_NOT_FOUND
+        }
+        Err(e) => {
+            eprintln!("tarn: {file}: {e}");
+            EXIT_USAGE
+        }
     }
 }
 
@@ -1704,9 +1731,10 @@ USAGE:
         --in <def> (within that def; first if names repeat) | --substring | --dry-run
     tarn json get <file> <path>           read a JSON value by path (a.b.0.c)
     tarn json set <file> <path> <value>   set it, preserving file formatting
+    tarn json del <file> <path>           delete a member/element (comma-aware)
     tarn toml get <file> <path>           read a TOML value by path (a.b.c)
     tarn toml set <file> <path> <value>   set it, preserving comments + layout
-    tarn toml del <file> <path>           delete a key (toml/yaml; json next)
+    tarn toml del <file> <path>           delete a key (json/toml/yaml)
     tarn yaml get <file> <path>           read a YAML value by path (a.b.c)
     tarn yaml set <file> <path> <value>   set it (block-mapping scalars)
         edit flags:  --diff (preview) | --json | --dry-run (don't write)

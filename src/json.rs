@@ -12,7 +12,7 @@
 //! documented limitation.)
 
 pub enum Kind {
-    Obj(Vec<(String, Node)>),
+    Obj(Vec<(usize, String, Node)>), // (key_start_byte, key, value)
     Arr(Vec<Node>),
     Str(String), // decoded value
     Scalar,      // number / bool / null — span only
@@ -65,6 +65,7 @@ impl<'a> Parser<'a> {
         }
         loop {
             self.ws();
+            let key_start = self.i;
             if self.b.get(self.i) != Some(&b'"') {
                 return Err("expected string key in object".into());
             }
@@ -75,7 +76,7 @@ impl<'a> Parser<'a> {
             }
             self.i += 1;
             let val = self.parse_value()?;
-            members.push((key, val));
+            members.push((key_start, key, val));
             self.ws();
             match self.b.get(self.i) {
                 Some(b',') => self.i += 1,
@@ -194,10 +195,15 @@ fn navigate<'n>(root: &'n Node, path: &str) -> Option<&'n Node> {
     if path.is_empty() {
         return Some(root);
     }
+    let segs: Vec<&str> = path.split('.').collect();
+    navigate_segs(root, &segs)
+}
+
+fn navigate_segs<'n>(root: &'n Node, segs: &[&str]) -> Option<&'n Node> {
     let mut cur = root;
-    for seg in path.split('.') {
+    for seg in segs {
         cur = match &cur.kind {
-            Kind::Obj(members) => &members.iter().find(|(k, _)| k == seg)?.1,
+            Kind::Obj(members) => &members.iter().find(|(_, k, _)| k == seg)?.2,
             Kind::Arr(items) => items.get(seg.parse::<usize>().ok()?)?,
             _ => return None,
         };
@@ -224,6 +230,57 @@ pub fn set(content: &str, path: &str, value: &str) -> Result<Option<String>, Str
     Ok(span.map(|(start, end)| {
         format!("{}{}{}", &content[..start], encode_value(value), &content[end..])
     }))
+}
+
+/// Delete the value at `path`, removing the member (object key) or element
+/// (array index) and exactly one adjacent comma so the result stays valid JSON.
+/// `Ok(None)` = path absent; `Err` = parent isn't an object/array.
+pub fn del(content: &str, path: &str) -> Result<Option<String>, String> {
+    let root = parse(content)?;
+    let segs: Vec<&str> = path.split('.').collect();
+    if segs.is_empty() {
+        return Ok(None);
+    }
+    let (parent_segs, last) = segs.split_at(segs.len() - 1);
+    let last = last[0];
+    let parent = match navigate_segs(&root, parent_segs) {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    // Compute the [a, b) byte span to splice out, comma-aware.
+    let span = match &parent.kind {
+        Kind::Obj(members) => {
+            let i = match members.iter().position(|(_, k, _)| k == last) {
+                Some(i) => i,
+                None => return Ok(None),
+            };
+            let n = members.len();
+            let (ks, _, val) = &members[i];
+            if n == 1 {
+                (*ks, val.end) // only member
+            } else if i + 1 < n {
+                (*ks, members[i + 1].0) // member + the comma up to the next key
+            } else {
+                (members[i - 1].2.end, val.end) // last: drop the comma before it
+            }
+        }
+        Kind::Arr(items) => {
+            let i = match last.parse::<usize>() {
+                Ok(i) if i < items.len() => i,
+                _ => return Ok(None),
+            };
+            let n = items.len();
+            if n == 1 {
+                (items[0].start, items[0].end)
+            } else if i + 1 < n {
+                (items[i].start, items[i + 1].start)
+            } else {
+                (items[i - 1].end, items[i].end)
+            }
+        }
+        _ => return Err("parent is not an object or array".into()),
+    };
+    Ok(Some(format!("{}{}", &content[..span.0], &content[span.1..])))
 }
 
 /// Keep `v` as-is if it is a complete JSON value; otherwise encode as a string.
@@ -365,6 +422,31 @@ mod tests {
     #[test]
     fn invalid_json_errors() {
         assert!(get("{bad", "x").is_err());
+    }
+
+    #[test]
+    fn del_member_stays_valid() {
+        let j = r#"{"a": 1, "b": 2, "c": 3}"#;
+        assert_eq!(del(j, "b").unwrap().unwrap(), r#"{"a": 1, "c": 3}"#); // middle
+        assert_eq!(del(j, "a").unwrap().unwrap(), r#"{"b": 2, "c": 3}"#); // first
+        assert_eq!(del(j, "c").unwrap().unwrap(), r#"{"a": 1, "b": 2}"#); // last
+        assert_eq!(del(r#"{"only": 1}"#, "only").unwrap().unwrap(), "{}"); // only
+        assert_eq!(del(j, "z").unwrap(), None); // missing
+    }
+
+    #[test]
+    fn del_array_element_stays_valid() {
+        let a = "[10, 20, 30]";
+        assert_eq!(del(a, "1").unwrap().unwrap(), "[10, 30]");
+        assert_eq!(del(a, "0").unwrap().unwrap(), "[20, 30]");
+        assert_eq!(del(a, "2").unwrap().unwrap(), "[10, 20]");
+        assert_eq!(del("[5]", "0").unwrap().unwrap(), "[]");
+    }
+
+    #[test]
+    fn del_nested() {
+        let j = r#"{"x": {"a": 1, "b": 2}, "y": 9}"#;
+        assert_eq!(del(j, "x.a").unwrap().unwrap(), r#"{"x": {"b": 2}, "y": 9}"#);
     }
 
     #[test]
