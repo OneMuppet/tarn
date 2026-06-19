@@ -48,6 +48,7 @@ tarn check src/server.rs             # 6. verify you left no junk
 | Rename (whole-word) | `tarn rename <path> <old> <new> [--in <def>] [--dry-run]` |
 | Read/set JSON config | `tarn json get\|set <file> <path> [value]` |
 | Read/set TOML config | `tarn toml get\|set <file> <path> [value]` |
+| Read/set YAML config | `tarn yaml get\|set <file> <path> [value]` |
 | Hygiene gate | `tarn check <file>` |
 
 ## Conventions

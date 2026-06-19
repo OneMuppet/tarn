@@ -102,6 +102,13 @@ pub const COMMANDS: &[Cmd] = &[
         examples: &["tarn toml get Cargo.toml package.version", "tarn toml set pyproject.toml tool.ruff.line-length 100"],
     },
     Cmd {
+        name: "yaml",
+        group: "config",
+        usage: "tarn yaml get <file> <path>  |  tarn yaml set <file> <path> <value> [--dry-run|--diff]",
+        summary: "Read or set a YAML value by dotted path (server.host), preserving formatting/comments. Block-mapping scalars only; errors (never corrupts) on sequences/flow/block-scalars/anchors/multi-doc.",
+        examples: &["tarn yaml get deploy.yaml spec.replicas", "tarn yaml set ci.yml jobs.build.timeout-minutes 30"],
+    },
+    Cmd {
         name: "check",
         group: "verify",
         usage: "tarn check <file> [--json]",
@@ -213,7 +220,7 @@ mod tests {
         // Keep this list in sync with the dispatcher in main.rs::run.
         for name in [
             "outline", "find", "peek", "show", "replace", "insert", "delete", "write",
-            "apply", "rename", "json", "toml", "check", "get", "set", "unset", "keys", "view",
+            "apply", "rename", "json", "toml", "yaml", "check", "get", "set", "unset", "keys", "view",
         ] {
             assert!(find_cmd(name).is_some(), "manifest missing command: {name}");
         }

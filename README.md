@@ -307,6 +307,25 @@ semver) is quoted so the result is always valid TOML. It handles `[table]`/
 multiline arrays, and arrays-of-tables (`[[x]]`) are tracked so parsing never
 breaks, but `set` on them errors rather than risk a bad edit (it never corrupts).
 
+### …and YAML, for the config world agents live in
+
+`tarn yaml get/set` brings the same surgical, format-preserving edit to YAML —
+the format behind Kubernetes, GitHub Actions, docker-compose, and Ansible. Paths
+are dotted across nested block mappings; comments, indentation, and key order are
+untouched.
+
+```sh
+tarn yaml get deploy.yaml spec.replicas        # 3
+tarn yaml set deploy.yaml spec.replicas 5 --diff
+tarn yaml set .github/workflows/ci.yml jobs.build.timeout-minutes 30
+```
+
+It edits **block-mapping scalar values** (the overwhelming majority of config
+keys); a value is quoted only when a plain scalar would be unsafe, so the result
+is always valid YAML. Sequences (`- item`), flow collections (`[..]`/`{..}`),
+block scalars (`|`/`>`), anchors/aliases, and multi-document streams are tracked
+so parsing never misreads them — but `set` on them **errors rather than corrupt**.
+
 ## The scriptable side (for AI harnesses & scripts)
 
 These are non-interactive and deterministic. Edits are **surgical**: comments,
