@@ -86,7 +86,7 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd {
         name: "rename",
         group: "edit",
-        usage: "tarn rename <path> <old> <new> [--in <def>] [--substring] [--dry-run] [--json]",
+        usage: "tarn rename <path> <old> <new> [--in <def>] [--substring] [--dry-run] [--diff] [--json]",
         summary: "Whole-word rename in a file or directory; --in <def> scopes it to one definition; --substring matches anywhere.",
         examples: &["tarn rename src/ oldName newName --dry-run"],
     },

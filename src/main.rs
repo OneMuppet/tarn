@@ -452,6 +452,7 @@ fn cmd_rename(args: &[String]) -> u8 {
     let mut substring = false;
     let mut dry_run = false;
     let mut json = false;
+    let mut diff = false;
     let mut color_pref: Option<bool> = None;
     let mut in_def: Option<&str> = None;
     let mut pos: Vec<&str> = Vec::new();
@@ -461,6 +462,7 @@ fn cmd_rename(args: &[String]) -> u8 {
             "--substring" => substring = true,
             "--dry-run" => dry_run = true,
             "--json" => json = true,
+            "--diff" => diff = true,
             "--plain" => color_pref = Some(false),
             "--color" => color_pref = Some(true),
             "--in" => match args.get(i + 1) {
@@ -495,7 +497,7 @@ fn cmd_rename(args: &[String]) -> u8 {
 
     // Compute every change first, then write — so a dry-run is free and a real
     // run doesn't start writing until all edits are known.
-    let mut changes: Vec<(String, String, usize)> = Vec::new(); // (file, new_content, count)
+    let mut changes: Vec<(String, String, String, usize)> = Vec::new(); // (file, old, new, count)
     let mut total = 0usize;
     for f in &files {
         let content = match fs::read_to_string(f) {
@@ -520,7 +522,7 @@ fn cmd_rename(args: &[String]) -> u8 {
         };
         if count > 0 {
             total += count;
-            changes.push((fname, updated, count));
+            changes.push((fname, content, updated, count));
         }
     }
 
@@ -530,19 +532,29 @@ fn cmd_rename(args: &[String]) -> u8 {
     }
 
     if !dry_run {
-        for (f, content, _) in &changes {
-            if let Err(e) = fs::write(f, content) {
+        for (f, _old, new_content, _) in &changes {
+            if let Err(e) = fs::write(f, new_content) {
                 eprintln!("tarn: cannot write {f}: {e}");
                 return EXIT_USAGE;
             }
         }
     }
 
-    let summary: Vec<(String, usize)> = changes.iter().map(|(f, _, c)| (f.clone(), *c)).collect();
+    let color = color_pref.unwrap_or_else(use_color);
     if json {
+        let summary: Vec<(String, usize)> = changes.iter().map(|(f, _, _, c)| (f.clone(), *c)).collect();
         print!("{}", render::rename_json(old, new, &summary, total, word, dry_run));
+    } else if diff {
+        let multi = changes.len() > 1;
+        for (f, old_c, new_c, _) in &changes {
+            if multi {
+                let header = format!("── {f} ──");
+                print!("{}", if color { format!("\x1b[38;2;199;117;46m{header}\x1b[0m\n") } else { format!("{header}\n") });
+            }
+            print!("{}", render::diff(old_c, new_c, color));
+        }
     } else {
-        let color = color_pref.unwrap_or_else(use_color);
+        let summary: Vec<(String, usize)> = changes.iter().map(|(f, _, _, c)| (f.clone(), *c)).collect();
         print!("{}", render::rename_view(old, new, &summary, total, word, dry_run, color));
     }
     let _ = io::stdout().flush();
@@ -1476,6 +1488,12 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
+            // end of flags: everything after `--` is a positional value verbatim
+            // (so a value like `--diff` can be passed as text)
+            "--" => {
+                rest.extend(args[i + 1..].iter().cloned());
+                break;
+            }
             "--diff" => diff = true,
             "--json" => json = true,
             "--dry-run" => dry_run = true,
