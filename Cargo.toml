@@ -1,5 +1,7 @@
 [package]
-name = "tarn"
+# The crates.io package is `tarn-cli` (the name `tarn` is taken by an unrelated
+# crate); the installed command stays `tarn` via the [[bin]] below.
+name = "tarn-cli"
 version = "0.1.0"
 edition = "2021"
 authors = ["David Borgenvik"]
