@@ -206,23 +206,19 @@ pub fn outline(path: &str, content: &str) -> Vec<Def> {
     defs
 }
 
-/// The chain of definitions enclosing `target` (1-based), outermost → innermost.
-pub fn enclosing(path: &str, content: &str, target: usize) -> Vec<Def> {
-    let mut chain: Vec<Def> = outline(path, content)
-        .into_iter()
+/// A dotted, qualified name for the innermost scope enclosing `target`, computed
+/// against an already-parsed outline — so a caller with many lookups in one file
+/// (e.g. `find --enclosing`) parses the file ONCE, not per match.
+pub fn qualified_in(defs: &[Def], target: usize) -> Option<(String, usize, usize)> {
+    let mut chain: Vec<&Def> = defs
+        .iter()
         .filter(|d| d.line <= target && d.end >= target)
         .collect();
     chain.sort_by_key(|d| d.line);
-    chain
-}
-
-/// A dotted, qualified name for the innermost enclosing scope (e.g. `Handler.do_GET`).
-pub fn qualified(path: &str, content: &str, target: usize) -> Option<(String, usize, usize)> {
-    let chain = enclosing(path, content, target);
-    chain.last()?;
+    let inner = chain.last()?;
+    let (line, end) = (inner.line, inner.end);
     let name = chain.iter().map(|d| d.name.as_str()).collect::<Vec<_>>().join(".");
-    let inner = chain.last().unwrap();
-    Some((name, inner.line, inner.end))
+    Some((name, line, end))
 }
 
 /// The definition block at `line`: prefer one that *starts* there, else the
@@ -280,7 +276,7 @@ def main():
     #[test]
     fn enclosing_is_innermost() {
         // line 5 is `return 1`, inside do_GET inside Handler
-        let q = qualified("h.py", PY, 5).unwrap();
+        let q = qualified_in(&outline("h.py", PY), 5).unwrap();
         assert_eq!(q.0, "Handler.do_GET");
     }
 

@@ -576,6 +576,8 @@ fn cmd_find(args: &[String]) -> u8 {
     let mut json = false;
     let mut limit = 100usize;
     let mut color_pref: Option<bool> = None;
+    let mut count_only = false;
+    let mut files_only = false;
     let mut end_flags = false; // set by `--`: everything after is positional
 
     let mut i = 0;
@@ -592,6 +594,8 @@ fn cmd_find(args: &[String]) -> u8 {
                 "-i" | "--ignore-case" => ignore_case = true,
                 "--enclosing" => enclosing = true,
                 "--json" => json = true,
+                "--count" | "-c" => count_only = true,
+                "--files" | "-l" => files_only = true,
                 "--plain" => color_pref = Some(false),
                 "--color" => color_pref = Some(true),
                 "--limit" => match next_usize(args, &mut i) {
@@ -631,45 +635,85 @@ fn cmd_find(args: &[String]) -> u8 {
     }
     let multi = files.len() > 1;
 
-    let needle = if ignore_case { pattern.to_lowercase() } else { pattern.to_string() };
+    let needle = pattern.as_bytes();
     let mut matches: Vec<render::FindMatch> = Vec::new();
     let mut total = 0usize;
     let mut hit_files = 0usize;
+    let mut matched_files: Vec<String> = Vec::new();
+
     for f in &files {
-        let fname = f.to_string_lossy().to_string();
-        // Non-UTF-8 / binary files just fail to read and are skipped.
-        let content = match fs::read_to_string(f) {
+        // Read raw bytes; skip binaries fast (a NUL in the first chunk is the
+        // usual giveaway) and anything that isn't valid UTF-8 text.
+        let bytes = match fs::read(f) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        if bytes.iter().take(8192).any(|&b| b == 0) {
+            continue;
+        }
+        let content = match std::str::from_utf8(&bytes) {
             Ok(c) => c,
             Err(_) => continue,
         };
+        // Parse structure at most ONCE per file, and only when it's needed.
+        let defs = if enclosing && !count_only && !files_only {
+            Some(structure::outline(&f.to_string_lossy(), content))
+        } else {
+            None
+        };
+
         let mut file_hit = false;
         for (idx, line) in content.lines().enumerate() {
-            let hay = if ignore_case { line.to_lowercase() } else { line.to_string() };
-            if hay.contains(&needle) {
-                total += 1;
-                file_hit = true;
-                if matches.len() < limit {
-                    let scope = if enclosing {
-                        structure::qualified(&fname, &content, idx + 1)
-                    } else {
-                        None
-                    };
-                    matches.push(render::FindMatch {
-                        file: fname.clone(),
-                        line: idx + 1,
-                        text: line.to_string(),
-                        scope,
-                    });
-                }
+            if !find_in(line.as_bytes(), needle, ignore_case) {
+                continue;
+            }
+            total += 1;
+            file_hit = true;
+            if files_only {
+                break; // one hit is enough to name the file
+            }
+            if !count_only && matches.len() < limit {
+                let scope = defs.as_ref().and_then(|d| structure::qualified_in(d, idx + 1));
+                matches.push(render::FindMatch {
+                    file: f.to_string_lossy().to_string(),
+                    line: idx + 1,
+                    text: line.to_string(),
+                    scope,
+                });
             }
         }
         if file_hit {
             hit_files += 1;
+            if files_only {
+                matched_files.push(f.to_string_lossy().to_string());
+            }
         }
     }
 
     if total == 0 {
         return EXIT_NOT_FOUND;
+    }
+
+    // -c / --count: just the number.
+    if count_only {
+        if json {
+            println!("{{\"pattern\":{},\"total\":{}}}", render::jstr(pattern), total);
+        } else {
+            println!("{total}");
+        }
+        return EXIT_OK;
+    }
+    // -l / --files: just the names of files that matched.
+    if files_only {
+        if json {
+            let items: Vec<String> = matched_files.iter().map(|f| render::jstr(f)).collect();
+            println!("{{\"pattern\":{},\"files\":[{}]}}", render::jstr(pattern), items.join(","));
+        } else {
+            for f in &matched_files {
+                println!("{f}");
+            }
+        }
+        return EXIT_OK;
     }
 
     if json {
@@ -684,6 +728,32 @@ fn cmd_find(args: &[String]) -> u8 {
     }
     let _ = io::stdout().flush();
     EXIT_OK
+}
+
+/// Zero-allocation substring search over bytes. `ci` = ASCII case-insensitive.
+/// (A UTF-8 needle matches the same byte sequence; case-folding is ASCII-only,
+/// which is the documented behavior of `-i`.)
+fn find_in(hay: &[u8], needle: &[u8], ci: bool) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    if needle.len() > hay.len() {
+        return false;
+    }
+    let eq = |a: u8, b: u8| if ci { a.eq_ignore_ascii_case(&b) } else { a == b };
+    let n0 = needle[0];
+    'outer: for i in 0..=hay.len() - needle.len() {
+        if !eq(hay[i], n0) {
+            continue;
+        }
+        for k in 1..needle.len() {
+            if !eq(hay[i + k], needle[k]) {
+                continue 'outer;
+            }
+        }
+        return true;
+    }
+    false
 }
 
 /// Files to search: a single file as-is, or every readable file under a
@@ -1061,6 +1131,7 @@ USAGE:
     tarn peek    <file> <name>  show just the definition named <name>  [--json]
     tarn find    <path> <text>  search a file OR directory; hits with file+line
         -i (ignore case) | --enclosing (tag hits w/ their def) | --limit N | --json
+        -c/--count (just the number) | -l/--files (just filenames)
         --  <text>  search a pattern that starts with a dash
     tarn check   <file>         file-hygiene gate (0 clean / 1 issues)  [--json]
 

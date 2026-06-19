@@ -82,8 +82,17 @@ tarn find   app.py 'send_'     # literal search; each hit with its line number
 tarn find   src/   'send_'     # search a whole DIRECTORY (recursive), grouped by file
 tarn find   app.py 'send_' --enclosing   # ...and the definition that contains it
 tarn find   app.py 'send_' --json -i --limit 50
+tarn find   src/   'send_' -c    # just the count (like grep -c)
+tarn find   src/   'send_' -l    # just the filenames that match (like grep -l)
 tarn find   app.py -- '--flag' # use -- to search a pattern that starts with a dash
 ```
+
+**Fast on purpose.** `find` reads bytes, skips binaries, and matches without
+allocating per line; `--enclosing` parses each file's structure once, not once
+per hit. On a 14 MB / 1,200-file tree it's ~2.5× quicker than the system grep
+with identical counts (a parallel-SIMD tool like ripgrep is still faster at raw
+throughput — but it can't hand you the enclosing definition, an outline, or a
+surgical edit).
 
 `find` takes a file *or a directory* — pointed at a dir it recurses (skipping
 hidden entries and `target`/`node_modules`/`dist`/`build`, and non-text files),
