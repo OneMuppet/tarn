@@ -159,7 +159,18 @@ pub fn outline(path: &str, content: &str) -> Vec<Def> {
     // First pass: candidate definition lines. `rank` drives nesting: a heading's
     // level, or (for code) the line's indentation.
     let mut raw: Vec<(usize, String, String, usize, usize)> = Vec::new(); // (idx,kind,name,level,rank)
+    let mut in_fence = false; // markdown: don't read `#` inside ``` / ~~~ code blocks
     for (idx, line) in lines.iter().enumerate() {
+        if rules.markdown {
+            let t = line.trim_start();
+            if t.starts_with("```") || t.starts_with("~~~") {
+                in_fence = !in_fence;
+                continue;
+            }
+            if in_fence {
+                continue;
+            }
+        }
         if let Some((kind, name)) = detect(line, &rules) {
             let level = kind
                 .strip_prefix('h')
@@ -290,6 +301,14 @@ def main():
         assert_eq!(defs[0].name, "Title");
         assert_eq!(defs[1].name, "Section");
         assert_eq!(defs[1].depth, 1);
+    }
+
+    #[test]
+    fn markdown_ignores_fenced_code() {
+        // a `#` line inside a ``` fence is code, not a heading
+        let md = "# Real\n\n```\n# not a heading\n## also not\n```\n\n## After\n";
+        let names: Vec<&str> = outline("doc.md", md).iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, vec!["Real", "After"]);
     }
 
     #[test]
