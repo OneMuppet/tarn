@@ -3,8 +3,14 @@ name = "tarn"
 version = "0.1.0"
 edition = "2021"
 authors = ["David Borgenvik"]
-description = "A tiny, understandable terminal editor that doubles as a scriptable .env tool for AI harnesses."
+description = "A tiny, zero-dependency terminal editor and structural CLI toolkit for AI agents: navigate, search, edit, and patch code with exact line numbers and meaningful exit codes."
 license = "MIT"
+repository = "https://github.com/OneMuppet/tarn"
+homepage = "https://github.com/OneMuppet/tarn"
+readme = "README.md"
+keywords = ["cli", "editor", "agents", "grep", "diff"]
+categories = ["command-line-utilities", "text-editors", "development-tools"]
+exclude = ["assets/_gen.py", ".github/"]
 
 # Zero dependencies on purpose. std only; raw mode is done by shelling out to
 # `stty`, which is always present. This is the deliberate "small + readable" choice.
