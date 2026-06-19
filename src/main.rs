@@ -1742,14 +1742,43 @@ fn cmd_insert(args: &[String]) -> u8 {
 /// `delete <file> <A-B> [...]`  (alias: del)
 fn cmd_delete(args: &[String]) -> u8 {
     let flags = parse_edit_flags(args);
-    let (file, range) = match (flags.rest.first(), flags.rest.get(1)) {
-        (Some(f), Some(r)) => match parse_range(r) {
-            Some(r) => (f.as_str(), r),
-            None => return usage_err("delete <file> <A-B> [--diff|--json] [--dry-run]"),
-        },
-        _ => return usage_err("delete <file> <A-B> [--diff|--json] [--dry-run]"),
-    };
     let exp = flags.expect.clone();
+
+    // Resolve the target line range, either structurally (`--def <name>`,
+    // whole-definition delete) or from an explicit `<A-B>`. Doing it up front
+    // lets a missing/ambiguous def report the right exit code (1/2) instead of
+    // routing through the edit guard (3).
+    let (file, range): (&str, (usize, usize)) = if let Some(name) = flags.def.clone() {
+        let file = match flags.rest.first() {
+            Some(f) => f.as_str(),
+            None => return usage_err("delete <file> --def <name> [--diff|--json] [--dry-run]"),
+        };
+        let content = match fs::read_to_string(file) {
+            Ok(c) => c,
+            Err(_) => {
+                eprintln!("tarn: cannot read {file}");
+                return EXIT_NOT_FOUND;
+            }
+        };
+        match def_block_range(file, &content, &name) {
+            Ok(r) => (file, r),
+            Err((code, msg)) => {
+                eprintln!("tarn: {msg}");
+                return code;
+            }
+        }
+    } else {
+        match (flags.rest.first(), flags.rest.get(1)) {
+            (Some(f), Some(r)) => match parse_range(r) {
+                Some(r) => (f.as_str(), r),
+                None => return usage_err("delete <file> <A-B> [--diff|--json] [--dry-run]"),
+            },
+            _ => {
+                return usage_err("delete <file> <A-B> | --def <name>  [--diff|--json] [--dry-run]")
+            }
+        }
+    };
+
     apply_edit(
         file,
         "delete",
@@ -1757,6 +1786,24 @@ fn cmd_delete(args: &[String]) -> u8 {
         |c| check_expect(&exp, textfile::range_text(c, range.0, range.1)),
         |c| textfile::delete(c, range.0, range.1),
     )
+}
+
+/// Resolve a definition NAME to its inclusive (start, end) line range for
+/// structural edits. Returns an exit code alongside the message: not-found is
+/// EXIT_NOT_FOUND, an ambiguous name (more than one definition) is EXIT_USAGE —
+/// the caller should disambiguate with an explicit line range rather than have
+/// tarn guess which to touch.
+fn def_block_range(path: &str, content: &str, name: &str) -> Result<(usize, usize), (u8, String)> {
+    let defs = structure::outline(path, content);
+    let hits: Vec<&structure::Def> = defs.iter().filter(|d| d.name == name).collect();
+    match hits.len() {
+        0 => Err((EXIT_NOT_FOUND, format!("no definition named '{name}'"))),
+        1 => Ok((hits[0].line, hits[0].end)),
+        n => Err((
+            EXIT_USAGE,
+            format!("ambiguous: {n} definitions named '{name}' — use an explicit line range (A-B)"),
+        )),
+    }
 }
 
 /// `write <file> [...]` — replace the whole file with stdin.
@@ -1952,6 +1999,7 @@ struct EditFlags {
     all: bool,
     expect: Option<String>,
     match_anchor: Option<String>,
+    def: Option<String>,
     rest: Vec<String>,
 }
 
@@ -2058,6 +2106,7 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
     let mut color_pref: Option<bool> = None;
     let mut expect: Option<String> = None;
     let mut match_anchor: Option<String> = None;
+    let mut def: Option<String> = None;
     let mut rest: Vec<String> = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -2082,6 +2131,10 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
                 i += 1;
                 match_anchor = args.get(i).cloned();
             }
+            "--def" => {
+                i += 1;
+                def = args.get(i).cloned();
+            }
             other => rest.push(other.to_string()),
         }
         i += 1;
@@ -2094,6 +2147,7 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
         all,
         expect,
         match_anchor,
+        def,
         rest,
     }
 }
@@ -2194,7 +2248,7 @@ USAGE:
     tarn replace <file> <N> <text>        replace line N
         --match <anchor> <new-line>       ...or the whole line containing <anchor> [--all]
     tarn insert  <file> <after-N> <text>  insert after line N (0=top)
-    tarn delete  <file> <A-B>             delete line range  (alias: del)
+    tarn delete  <file> <A-B>             delete line range, or --def <name> for a whole def  (alias: del)
     tarn write   <file>                   replace file from stdin
     tarn apply   [file]                   batch ops from stdin, atomically
         across files too: a `file <path>` line in the ops switches target

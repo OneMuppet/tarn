@@ -260,7 +260,23 @@ fn block_end(lines: &[&str], i: usize) -> usize {
             break;
         }
     }
+    // Brace languages put the closing delimiter at the SAME indent as the
+    // opener, so the indentation walk stops just above it. Pull in that lone
+    // closer so a def's range covers its whole block (its `}`/`)`/`]`).
+    // Indentation-only languages (Python, YAML) have no such line, so they're
+    // unaffected.
+    if j < lines.len() && indent(lines[j]) == base && is_closer(lines[j].trim()) {
+        end = j;
+    }
     end
+}
+
+/// A line that is nothing but closing delimiters (optionally with a trailing
+/// `,`/`;`), e.g. `}`, `})`, `};`, `},`, `)`, `]` — the tail of a brace block.
+fn is_closer(t: &str) -> bool {
+    !t.is_empty()
+        && t.chars().all(|c| matches!(c, '}' | ')' | ']' | ',' | ';'))
+        && t.contains(['}', ')', ']'])
 }
 
 /// The structural outline of a document.
@@ -480,5 +496,33 @@ def main():
         let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
         assert!(names.contains(&"run"));
         assert!(names.contains(&"Cfg"));
+    }
+
+    #[test]
+    fn brace_block_includes_closing_delimiter() {
+        // The closing `}` sits at the opener's indent; the range must include it
+        // so structural edits (delete --def) and peek cover the whole block.
+        let rs = "fn run() {\n    let x = 1;\n}\n\nstruct Cfg {\n    n: u8,\n}\n";
+        let defs = outline("m.rs", rs);
+        let run = defs.iter().find(|d| d.name == "run").unwrap();
+        assert_eq!((run.line, run.end), (1, 3)); // includes the `}` on line 3
+        let cfg = defs.iter().find(|d| d.name == "Cfg").unwrap();
+        assert_eq!((cfg.line, cfg.end), (5, 7));
+        // is_closer: only lines that are purely closers (+ trailing ,/;) count.
+        assert!(is_closer("}"));
+        assert!(is_closer("});"));
+        assert!(is_closer("},"));
+        assert!(!is_closer("};x"));
+        assert!(!is_closer(";")); // no bracket
+        assert!(!is_closer("let y = 1;"));
+    }
+
+    #[test]
+    fn python_block_unaffected_by_closer_logic() {
+        // Indentation-only languages have no closer line; ranges stay as before.
+        let py = "def a():\n    return 1\n\ndef b():\n    return 2\n";
+        let defs = outline("x.py", py);
+        let a = defs.iter().find(|d| d.name == "a").unwrap();
+        assert_eq!((a.line, a.end), (1, 2));
     }
 }

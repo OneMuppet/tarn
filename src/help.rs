@@ -86,9 +86,12 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd {
         name: "delete",
         group: "edit",
-        usage: "tarn delete <file> <A-B> [--expect T] [--diff|--json] [--dry-run]   (alias: del)",
-        summary: "Delete an inclusive line range.",
-        examples: &["tarn delete app.py 40-42 --diff"],
+        usage: "tarn delete <file> <A-B> | --def <name>  [--expect T] [--diff|--json] [--dry-run]   (alias: del)",
+        summary: "Delete an inclusive line range, or a whole definition block by name with --def (structural).",
+        examples: &[
+            "tarn delete app.py 40-42 --diff",
+            "tarn delete src/main.rs --def old_helper --dry-run",
+        ],
     },
     Cmd {
         name: "write",
