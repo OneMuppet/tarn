@@ -1381,7 +1381,6 @@ fn cmd_find(args: &[String]) -> u8 {
     }
     let multi = files.len() > 1;
 
-    let needle = pattern.as_bytes();
     let mut matches: Vec<render::FindMatch> = Vec::new();
     let mut total = 0usize;
     let mut hit_files = 0usize;
@@ -1408,11 +1407,32 @@ fn cmd_find(args: &[String]) -> u8 {
             None
         };
 
+        // Pure-count fast path: build ONE substring searcher for the whole file
+        // (via match_indices) instead of rebuilding it per line, and count the
+        // distinct lines a match falls on. A new line is started whenever there's
+        // a newline between consecutive matches (offsets are increasing). Only for
+        // the plain case — case-insensitive / whole-word keep the line scan.
+        if count_only && can_fast_count(pattern, ignore_case, word) {
+            let file_count = count_matching_lines(content, pattern);
+            if file_count > 0 {
+                total += file_count;
+                hit_files += 1;
+            }
+            continue;
+        }
+
         let want_ctx = ctx_before > 0 || ctx_after > 0;
-        let lines: Vec<&str> = content.lines().collect();
+        // Only materialize the line vector when we need random access to
+        // neighbours (context lines). The common path iterates lazily, which
+        // skips a Vec<&str> allocation of one pointer per line.
+        let lines: Vec<&str> = if want_ctx {
+            content.lines().collect()
+        } else {
+            Vec::new()
+        };
         let mut file_hit = false;
-        for (idx, line) in lines.iter().enumerate() {
-            if !find_in(line.as_bytes(), needle, ignore_case, word) {
+        for (idx, line) in content.lines().enumerate() {
+            if !line_matches(line, pattern, ignore_case, word) {
                 continue;
             }
             total += 1;
@@ -1540,6 +1560,52 @@ fn line_byte_span(content: &str, start: usize, end: usize) -> Option<(usize, usi
 /// line edge). A UTF-8 needle matches the same byte sequence; case-folding is
 /// ASCII-only (the documented behavior of `-i`). Callers search line-by-line
 /// with the terminator stripped, so CRLF is normalized — a literal `\r` won't match.
+/// Does `line` match `pat`? The hot path for `find`. The common case
+/// (case-sensitive substring) defers to std's `str::contains`, which uses the
+/// Two-Way algorithm with a word-at-a-time skip — far faster than a naive
+/// byte-by-byte scan when the first byte is common (e.g. searching `function`).
+/// Case-insensitive and whole-word keep the explicit, proven `find_in` scan.
+/// Whether `find -c` may use the whole-buffer fast count path. It must match the
+/// per-line semantics of every other `find` mode (which scan `content.lines()`,
+/// i.e. `\r`/`\n`-stripped lines), so it's only safe for a plain, case-sensitive,
+/// non-empty pattern that itself contains no `\r`/`\n` — a pattern with an
+/// embedded line terminator can't match any single stripped line, and the raw
+/// buffer would count it differently. Everything else falls back to the line scan.
+fn can_fast_count(pat: &str, ci: bool, word: bool) -> bool {
+    !ci && !word && !pat.is_empty() && !pat.contains(['\r', '\n'])
+}
+
+/// Count the distinct lines containing `pat` (case-sensitive substring) using a
+/// SINGLE substring searcher over the whole buffer — the fast path for
+/// `find -c`. `match_indices` yields match offsets in increasing order; a match
+/// starts a new line iff there's a newline between it and the previous match, so
+/// several matches on one line count once. Callers must gate this with
+/// [`can_fast_count`]: `pat` must be non-empty and free of `\r`/`\n` (a `\r` in
+/// the haystack is fine; a `\r`/`\n` in the pattern is not handled here).
+fn count_matching_lines(content: &str, pat: &str) -> usize {
+    let mut count = 0usize;
+    let mut prev: Option<usize> = None;
+    for (off, _) in content.match_indices(pat) {
+        let new_line = match prev {
+            Some(p) => content[p..off].contains('\n'),
+            None => true,
+        };
+        if new_line {
+            count += 1;
+        }
+        prev = Some(off);
+    }
+    count
+}
+
+#[inline]
+fn line_matches(line: &str, pat: &str, ci: bool, word: bool) -> bool {
+    if !ci && !word {
+        return pat.is_empty() || line.contains(pat);
+    }
+    find_in(line.as_bytes(), pat.as_bytes(), ci, word)
+}
+
 fn find_in(hay: &[u8], needle: &[u8], ci: bool, word: bool) -> bool {
     if needle.is_empty() {
         return true;
@@ -2388,6 +2454,42 @@ mod tests {
         assert!(find_in(b"import port", b"port", false, true));
         // word + case-insensitive together
         assert!(find_in(b"The PORT", b"port", true, true));
+    }
+
+    #[test]
+    fn line_matches_fast_path_agrees_with_find_in() {
+        // The plain case routes through str::contains; must match find_in.
+        assert!(line_matches("a function here", "function", false, false));
+        assert!(!line_matches("nope", "function", false, false));
+        assert!(line_matches("anything", "", false, false)); // empty matches
+                                                             // ci / word still go through find_in
+        assert!(line_matches("The PORT", "port", true, false));
+        assert!(!line_matches("import socket", "port", false, true));
+    }
+
+    #[test]
+    fn fast_count_gated_to_plain_line_safe_patterns() {
+        // The fast count path only runs for plain, case-sensitive, non-empty
+        // patterns with no embedded line terminator — otherwise it could disagree
+        // with the per-line (content.lines()) semantics every other mode uses.
+        assert!(can_fast_count("function", false, false));
+        assert!(!can_fast_count("", false, false)); // empty → per-line path
+        assert!(!can_fast_count("port", true, false)); // -i
+        assert!(!can_fast_count("port", false, true)); // -w
+        assert!(!can_fast_count("o\r", false, false)); // CR in pattern
+        assert!(!can_fast_count("c\nd", false, false)); // LF in pattern (spans lines)
+    }
+
+    #[test]
+    fn count_matching_lines_counts_distinct_lines() {
+        // Several matches on one line count once; matches on N lines count N.
+        assert_eq!(count_matching_lines("aa aa aa\nbb\naa\n", "aa"), 2);
+        assert_eq!(count_matching_lines("x\ny\nz\n", "q"), 0);
+        assert_eq!(count_matching_lines("hit\nhit\nhit\n", "hit"), 3);
+        // CRLF: \n still delimits, \r doesn't interfere.
+        assert_eq!(count_matching_lines("a hit\r\nb\r\nhit two\r\n", "hit"), 2);
+        // No trailing newline, match on the last line.
+        assert_eq!(count_matching_lines("nope\nlast hit", "hit"), 1);
     }
 
     #[test]

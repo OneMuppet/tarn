@@ -37,8 +37,13 @@ dependencies.
 - **An editor for humans, a toolkit for agents.** A real full-screen TUI when you
   open a file in a terminal; a precise, scriptable CLI — navigate, edit, refactor,
   verify — everywhere else, with meaningful exit codes and `--json` output.
-- **Fast on purpose.** Zero-allocation search, one structure-parse per file,
-  binary-skipping — `find` beats the system grep with identical results.
+- **Fast on purpose.** One substring searcher per file (not rebuilt per line),
+  lazy line iteration, NUL/UTF-8 binary-skipping, one structure-parse per file.
+  On a 289 MB corpus, `tarn find -c` counts 99k matches in **~0.2 s** — roughly
+  **8× faster than the system grep** (ugrep) on the same box. Dedicated SIMD
+  scanners like ripgrep are faster still (~0.05 s); tarn trades that last slice
+  of speed for zero dependencies and a codebase you can read in one sitting.
+  (Numbers are reproducible — see [Performance](#performance).)
 
 <div align="center">
 <br>
@@ -430,6 +435,29 @@ HOST=localhost
 
 PORT=8080
 ```
+
+## Performance
+
+tarn is std-only — no SIMD crate, no mmap — so it won't out-run a dedicated
+scanner like ripgrep. The goal is to be *fast enough that you never reach for
+grep*, and it clears that bar comfortably.
+
+Measured on an Apple Silicon laptop against a **289 MB** single-file corpus of
+real source (≈7.3 M lines), counting the 99,197 lines that contain `function`,
+best of 9 runs:
+
+| tool | `-c` (count) | vs tarn |
+| --- | --- | --- |
+| **`tarn find -c`** | **~204 ms** | — |
+| `ugrep -c` (the system `grep` here) | ~1758 ms | tarn **~8.6× faster** |
+| `ripgrep -c` | ~48 ms | ripgrep ~4× faster than tarn |
+
+What makes `find` quick without SIMD: it builds **one** substring searcher per
+file (std's Two-Way) and reuses it across the whole buffer instead of rebuilding
+it per line, iterates lines lazily (no `Vec<&str>` of every line), skips binaries
+on a cheap NUL probe, and parses structure at most once per file — and only when
+`--enclosing` needs it. Reproduce it yourself: build `--release`, point `tarn
+find -c` and your `grep`/`rg` at any large file, and compare.
 
 ## Design notes
 
