@@ -401,6 +401,7 @@ src/textfile.rs   line-addressable replace/insert/delete
 src/render.rs     the `show` snapshot view + `--diff` renderer
 src/structure.rs  heuristic outline / enclosing-scope detection
 src/toml.rs       surgical TOML get/set by path
+src/yaml.rs       surgical YAML get/set by path (block mappings)
 src/help.rs       agent-native manifest (`help --json`) + per-command help
 ```
 
