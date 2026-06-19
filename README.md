@@ -172,6 +172,7 @@ harness-captured output stays clean; force it with `--plain` / `--color`.
 
 ```sh
 tarn replace app.py 2 '    print(f"hi {name}!")' --diff
+tarn replace app.py --match 'PORT = 8000' 'PORT = 9090'   # by CONTENT, not line number
 tarn insert  app.py 0 '#!/usr/bin/env python3'   # 0 = insert at the top
 tarn delete  app.py 5-6                           # (alias: del)
 some-generator | tarn write app.py --diff         # replace whole file from stdin
@@ -184,6 +185,11 @@ some-generator | tarn write app.py --diff         # replace whole file from stdi
     3
   ⋯
 ```
+
+`replace --match <anchor> <new-line>` edits **by content instead of line number**:
+it rewrites the whole line containing `<anchor>`, which must be unique (otherwise
+it exits 2 and lists the matching line numbers — pass `--all` to change them all,
+or exit 1 if none match). No `find` first, and it survives line drift.
 
 Line numbers are 1-based and match `show`'s gutter, so an agent reads a number
 off the view and edits exactly that line. Untouched lines are preserved

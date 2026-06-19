@@ -42,6 +42,7 @@ tarn check src/server.rs             # 6. verify you left no junk
 | Read one definition | `tarn peek <file> <name>` |
 | Open a region | `tarn show <file> [--around N \| --block N \| --lines A-B] [--highlight A-B]` |
 | Replace a line | `tarn replace <file> <N> <text> [--expect T] [--diff\|--dry-run]` |
+| Replace by content | `tarn replace <file> --match <anchor> <new-line> [--all]` |
 | Insert / delete | `tarn insert <file> <after-N> <text>` · `tarn delete <file> <A-B>` |
 | Rewrite a file | `… \| tarn write <file>` |
 | Batch / cross-file edit | `… \| tarn apply [file]` (use `file <path>` lines; atomic) |

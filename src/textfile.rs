@@ -86,6 +86,32 @@ pub fn normalize(input: &str) -> String {
     join(split(input), end, fin)
 }
 
+/// 1-based line numbers of every line that contains `anchor` (substring).
+pub fn find_matching_lines(content: &str, anchor: &str) -> Vec<usize> {
+    content
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| l.contains(anchor))
+        .map(|(i, _)| i + 1)
+        .collect()
+}
+
+/// Replace each given 1-based line wholesale with `new` (which may itself span
+/// several lines). Preserves the file's line-ending style and trailing newline.
+pub fn replace_at_lines(content: &str, targets: &[usize], new: &str) -> String {
+    let (end, fin) = style(content);
+    let repl = text_lines(new);
+    let mut out: Vec<String> = Vec::new();
+    for (i, line) in split(content).into_iter().enumerate() {
+        if targets.contains(&(i + 1)) {
+            out.extend(repl.clone());
+        } else {
+            out.push(line);
+        }
+    }
+    join(out, end, fin)
+}
+
 /// The text of line `n` (1-based), without terminator.
 pub fn line_at(content: &str, n: usize) -> Option<String> {
     if n == 0 {
@@ -388,6 +414,20 @@ mod tests {
     fn apply_expect_passes() {
         let ops = vec![Op::Expect(2, "beta".to_string()), Op::Replace(2, "BETA".to_string())];
         assert_eq!(apply_ops(DOC, &ops).unwrap(), "alpha\nBETA\ngamma\n");
+    }
+
+    #[test]
+    fn matching_lines_and_whole_line_replace() {
+        let doc = "alpha\nbeta x\ngamma\nbeta y\n";
+        assert_eq!(find_matching_lines(doc, "beta"), vec![2, 4]);
+        assert_eq!(replace_at_lines(doc, &[2], "BETA"), "alpha\nBETA\ngamma\nbeta y\n");
+        assert_eq!(replace_at_lines(doc, &[2, 4], "Z"), "alpha\nZ\ngamma\nZ\n");
+        assert_eq!(find_matching_lines(doc, "nope"), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn replace_at_lines_preserves_crlf() {
+        assert_eq!(replace_at_lines("a\r\nb\r\n", &[1], "X"), "X\r\nb\r\n");
     }
 
     #[test]

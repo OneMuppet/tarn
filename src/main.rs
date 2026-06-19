@@ -1099,12 +1099,46 @@ fn walk(dir: &PathBuf, out: &mut Vec<PathBuf>) {
 /// `replace <file> <N> <text> [--diff|--json] [--dry-run]`
 fn cmd_replace(args: &[String]) -> u8 {
     let flags = parse_edit_flags(args);
+
+    // Anchored mode: `replace <file> --match <anchor> <new-line>` — content-
+    // addressed, no line number. Replaces the whole line(s) containing <anchor>.
+    if let Some(anchor) = flags.match_anchor.clone() {
+        let (file, newline) = match (flags.rest.first(), flags.rest.get(1)) {
+            (Some(f), Some(t)) => (f.as_str(), t.as_str()),
+            _ => return usage_err("replace <file> --match <anchor> <new-line> [--all]"),
+        };
+        let old = match fs::read_to_string(file) {
+            Ok(c) => c,
+            Err(_) => {
+                eprintln!("tarn: cannot read {file}");
+                return EXIT_NOT_FOUND;
+            }
+        };
+        let matched = textfile::find_matching_lines(&old, &anchor);
+        if matched.is_empty() {
+            eprintln!("tarn: no line matches '{anchor}'");
+            return EXIT_NOT_FOUND;
+        }
+        if matched.len() > 1 && !flags.all {
+            let nums: Vec<String> = matched.iter().map(usize::to_string).collect();
+            eprintln!(
+                "tarn: '{anchor}' matches {} lines ({}) — refine it or pass --all",
+                matched.len(),
+                nums.join(", ")
+            );
+            return EXIT_USAGE;
+        }
+        let new = textfile::replace_at_lines(&old, &matched, newline);
+        return commit(file, "replace", &flags, &old, &new);
+    }
+
+    // Line-number mode.
     let (file, n, text) = match (flags.rest.first(), flags.rest.get(1), flags.rest.get(2)) {
         (Some(f), Some(n), Some(t)) => match n.parse::<usize>() {
             Ok(n) => (f.as_str(), n, t.as_str()),
-            Err(_) => return usage_err("replace <file> <N> <text> [--diff|--json] [--dry-run]"),
+            Err(_) => return usage_err("replace <file> <N> <text>   (or: --match <anchor> <new-line>)"),
         },
-        _ => return usage_err("replace <file> <N> <text> [--diff|--json] [--dry-run]"),
+        _ => return usage_err("replace <file> <N> <text>   (or: --match <anchor> <new-line>)"),
     };
     let exp = flags.expect.clone();
     apply_edit(
@@ -1335,7 +1369,9 @@ struct EditFlags {
     json: bool,
     dry_run: bool,
     color: bool,
+    all: bool,
     expect: Option<String>,
+    match_anchor: Option<String>,
     rest: Vec<String>,
 }
 
@@ -1432,9 +1468,10 @@ fn base_name(path: &str) -> String {
 /// Pull the shared editing flags out of an edit command's args. Color
 /// precedence: `--plain` < `--color` < auto-detect (TTY + NO_COLOR).
 fn parse_edit_flags(args: &[String]) -> EditFlags {
-    let (mut diff, mut json, mut dry_run) = (false, false, false);
+    let (mut diff, mut json, mut dry_run, mut all) = (false, false, false, false);
     let mut color_pref: Option<bool> = None;
     let mut expect: Option<String> = None;
+    let mut match_anchor: Option<String> = None;
     let mut rest: Vec<String> = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -1442,11 +1479,16 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
             "--diff" => diff = true,
             "--json" => json = true,
             "--dry-run" => dry_run = true,
+            "--all" => all = true,
             "--color" => color_pref = Some(true),
             "--plain" => color_pref = Some(false),
             "--expect" => {
                 i += 1;
                 expect = args.get(i).cloned();
+            }
+            "--match" => {
+                i += 1;
+                match_anchor = args.get(i).cloned();
             }
             other => rest.push(other.to_string()),
         }
@@ -1457,7 +1499,9 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
         json,
         dry_run,
         color: color_pref.unwrap_or_else(use_color),
+        all,
         expect,
+        match_anchor,
         rest,
     }
 }
@@ -1552,6 +1596,7 @@ USAGE:
         --lines A-B | --around N [--context K] | --head [K] | --tail [K] | --all
         --block N (the whole def at line N) | --highlight A-B | --json | --plain | --color
     tarn replace <file> <N> <text>        replace line N
+        --match <anchor> <new-line>       ...or the whole line containing <anchor> [--all]
     tarn insert  <file> <after-N> <text>  insert after line N (0=top)
     tarn delete  <file> <A-B>             delete line range  (alias: del)
     tarn write   <file>                   replace file from stdin
