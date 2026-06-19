@@ -50,6 +50,7 @@ tarn check src/server.rs             # 6. verify you left no junk
 | Edit a whole def | `tarn delete <file> --def <name>` · `… \| tarn replace <file> --def <name>` |
 | Rewrite a file | `… \| tarn write <file>` |
 | Batch / cross-file edit | `… \| tarn apply [file]` (use `file <path>` lines; atomic) |
+| Apply a unified diff | `git diff \| tarn patch [--dry-run\|--diff]` (strict, atomic, multi-file) |
 | Rename (whole-word) | `tarn rename <path> <old> <new> [--in <def>] [--dry-run]` |
 | Read/set/del JSON config | `tarn json get\|set\|del <file> <path> [value]` |
 | Read/set/del TOML config | `tarn toml get\|set\|del <file> <path> [value]` |

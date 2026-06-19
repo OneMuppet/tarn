@@ -217,6 +217,7 @@ tarn delete  app.py 5-6                           # (alias: del)
 tarn delete  src/main.rs --def old_helper         # delete a WHOLE definition by name
 cat new_fn.rs | tarn replace src/main.rs --def old_helper --diff   # swap a whole def from stdin
 some-generator | tarn write app.py --diff         # replace whole file from stdin
+git diff | tarn patch --dry-run                   # apply a unified diff (strict, atomic, multi-file)
 ```
 
 ```

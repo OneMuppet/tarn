@@ -9,6 +9,7 @@ mod editor;
 mod envfile;
 mod help;
 mod json;
+mod patch;
 mod render;
 mod structure;
 mod terminal;
@@ -97,6 +98,7 @@ fn run(args: &[String]) -> u8 {
         "delete" | "del" => cmd_delete(&args[1..]),
         "write" => cmd_write(&args[1..]),
         "apply" => cmd_apply(&args[1..]),
+        "patch" => cmd_patch(&args[1..]),
         "rename" => cmd_rename(&args[1..]),
         "json" => cmd_json(&args[1..]),
         "toml" => cmd_toml(&args[1..]),
@@ -2026,12 +2028,19 @@ fn cmd_apply(args: &[String]) -> u8 {
         }
     }
 
+    write_and_report("apply", &changes, &flags)
+}
+
+/// Write a validated set of `(path, old, new)` changes atomically and report the
+/// result (per-file diff, or a JSON summary; `op` names the operation in JSON).
+/// Shared by `apply` and `patch`: validation is all-or-nothing, so the WRITE
+/// phase is too — if a write fails mid-batch, the files already written are
+/// restored (best effort) so the transaction never leaves a partial result.
+/// Honours `--dry-run`.
+fn write_and_report(op: &str, changes: &[(String, String, String)], flags: &EditFlags) -> u8 {
     if !flags.dry_run {
-        // Validation was all-or-nothing; keep the WRITE phase all-or-nothing too.
-        // If a write fails mid-batch, restore the files already written (best
-        // effort) so the transaction doesn't leave a partial result.
         let mut written: Vec<&(String, String, String)> = Vec::new();
-        for change in &changes {
+        for change in changes {
             if let Err(e) = fs::write(&change.0, &change.2) {
                 let mut unrestored = Vec::new();
                 for done in &written {
@@ -2057,16 +2066,15 @@ fn cmd_apply(args: &[String]) -> u8 {
         }
     }
 
-    // Report: per-file diff, or a JSON summary across files.
     if flags.json {
         let files: Vec<(String, usize, usize)> = changes
             .iter()
             .map(|(p, o, n)| (p.clone(), o.lines().count(), n.lines().count()))
             .collect();
-        print!("{}", render::apply_json(&files, flags.dry_run));
+        print!("{}", render::apply_json(op, &files, flags.dry_run));
     } else {
         let multi = changes.len() > 1;
-        for (path, old, new) in &changes {
+        for (path, old, new) in changes {
             if multi {
                 let header = format!("── {path} ──");
                 print!(
@@ -2083,6 +2091,89 @@ fn cmd_apply(args: &[String]) -> u8 {
     }
     let _ = io::stdout().flush();
     EXIT_OK
+}
+
+/// `patch [--dry-run] [--diff] [--json]` — apply a unified diff from stdin.
+/// Strict: a hunk applies only if its context/removed lines match the file
+/// exactly (else a guard failure, exit 3). Multi-file diffs are atomic. File
+/// creation (`--- /dev/null`) is supported; deletion is refused (tarn won't
+/// remove files for you).
+fn cmd_patch(args: &[String]) -> u8 {
+    let flags = parse_edit_flags(args);
+    let mut input = String::new();
+    if io::stdin().read_to_string(&mut input).is_err() {
+        eprintln!("tarn: failed to read stdin");
+        return EXIT_USAGE;
+    }
+    let files = match patch::parse(&input) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("tarn: patch parse error: {e}");
+            return EXIT_USAGE;
+        }
+    };
+
+    // Validate + compute every file first; write nothing until all succeed.
+    let mut changes: Vec<(String, String, String)> = Vec::new();
+    for fp in &files {
+        if fp.delete {
+            eprintln!(
+                "tarn: patch deletes {} — tarn won't remove files; delete it yourself",
+                fp.path
+            );
+            return EXIT_USAGE;
+        }
+        let old = match (fp.create, fs::read_to_string(&fp.path)) {
+            // A creation patch onto a file that already has content is a mistake.
+            (true, Ok(c)) if !c.is_empty() => {
+                eprintln!("tarn: patch creates {} but it already exists", fp.path);
+                return EXIT_USAGE;
+            }
+            (true, _) => String::new(),
+            (false, Ok(c)) => c,
+            (false, Err(_)) => {
+                eprintln!("tarn: cannot read {}", fp.path);
+                return EXIT_NOT_FOUND;
+            }
+        };
+        let body = match patch::apply(&old, fp.hunks()) {
+            Ok(n) => n,
+            Err(e) => {
+                // File drift (the file isn't what the diff expects) is a guard
+                // failure; a structurally broken diff is a usage error.
+                let code = if e.is_drift() { EXIT_GUARD } else { EXIT_USAGE };
+                eprintln!("tarn: {}: {}", fp.path, e.message());
+                return code;
+            }
+        };
+        changes.push((fp.path.clone(), old.clone(), reframe_like(&old, body)));
+    }
+    if changes.is_empty() {
+        return usage_err("patch [--dry-run|--diff|--json]   (unified diff on stdin)");
+    }
+    write_and_report("patch", &changes, &flags)
+}
+
+/// Re-apply `original`'s line ending and trailing-newline state to `lf_body`
+/// (lines joined by `\n`, no trailing newline — what `patch::apply` returns), so
+/// patching preserves CRLF and final-newline exactly like every other edit. A
+/// newly created file (empty original) defaults to LF with a trailing newline.
+fn reframe_like(original: &str, lf_body: String) -> String {
+    let crlf = original
+        .find('\n')
+        .map(|i| i > 0 && original.as_bytes()[i - 1] == b'\r')
+        .unwrap_or(false);
+    let final_nl = original.is_empty() || original.ends_with('\n');
+    let ending = if crlf { "\r\n" } else { "\n" };
+    let mut body = if crlf {
+        lf_body.replace('\n', "\r\n")
+    } else {
+        lf_body
+    };
+    if final_nl && !body.is_empty() {
+        body.push_str(ending);
+    }
+    body
 }
 
 /// Parse one line of the `apply` op protocol.
@@ -2376,6 +2467,7 @@ USAGE:
     tarn delete  <file> <A-B>             delete line range, or --def <name> for a whole def  (alias: del)
     tarn write   <file>                   replace file from stdin
     tarn apply   [file]                   batch ops from stdin, atomically
+    tarn patch                           apply a unified diff from stdin (atomic, strict)
         across files too: a `file <path>` line in the ops switches target
     tarn rename  <path> <old> <new>       whole-word rename in a file/dir
         --in <def> (within that def; first if names repeat) | --substring | --dry-run

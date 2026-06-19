@@ -312,7 +312,7 @@ pub fn show_json(
 }
 
 /// Machine-readable result of a (possibly multi-file) `apply`.
-pub fn apply_json(files: &[(String, usize, usize)], dry_run: bool) -> String {
+pub fn apply_json(op: &str, files: &[(String, usize, usize)], dry_run: bool) -> String {
     let items: Vec<String> = files
         .iter()
         .map(|(p, before, after)| {
@@ -325,7 +325,8 @@ pub fn apply_json(files: &[(String, usize, usize)], dry_run: bool) -> String {
         })
         .collect();
     format!(
-        "{{\"op\":\"apply\",\"dry_run\":{},\"files\":[{}]}}\n",
+        "{{\"op\":{},\"dry_run\":{},\"files\":[{}]}}\n",
+        jstr(op),
         dry_run,
         items.join(",")
     )

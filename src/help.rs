@@ -109,6 +109,13 @@ pub const COMMANDS: &[Cmd] = &[
         examples: &["printf 'file a.rs\\nreplace 3 X\\nfile b.rs\\ndelete 5-6\\n' | tarn apply --diff"],
     },
     Cmd {
+        name: "patch",
+        group: "edit",
+        usage: "tarn patch [--diff|--json] [--dry-run]   (unified diff on stdin)",
+        summary: "Apply a unified diff from stdin (git diff / standard `diff -u`). Strict: a hunk applies only if its context matches exactly (else exit 3). Multi-file diffs are atomic; file creation is supported, deletion is refused.",
+        examples: &["git diff | tarn patch --dry-run", "tarn patch --diff < changes.patch"],
+    },
+    Cmd {
         name: "rename",
         group: "edit",
         usage: "tarn rename <path> <old> <new> [--in <def>] [--substring] [--dry-run] [--diff] [--json]",
@@ -255,8 +262,8 @@ mod tests {
         // Keep this list in sync with the dispatcher in main.rs::run.
         for name in [
             "outline", "defs", "refs", "tree", "find", "peek", "show", "replace", "insert",
-            "delete", "write", "apply", "rename", "json", "toml", "yaml", "check", "diff", "get",
-            "set", "unset", "keys", "view",
+            "delete", "write", "apply", "patch", "rename", "json", "toml", "yaml", "check", "diff",
+            "get", "set", "unset", "keys", "view",
         ] {
             assert!(find_cmd(name).is_some(), "manifest missing command: {name}");
         }
