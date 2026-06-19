@@ -116,7 +116,7 @@ fn strip_modifiers(mut t: &str) -> &str {
 fn name_after(rest: &str) -> String {
     rest.trim_start()
         .chars()
-        .take_while(|c| !"({<=:;{".contains(*c))
+        .take_while(|c| !"({<=:;".contains(*c))
         .collect::<String>()
         .trim()
         .to_string()
