@@ -2017,12 +2017,10 @@ fn cmd_apply(args: &[String]) -> u8 {
         match textfile::apply_ops(&old, ops) {
             Ok(new) => changes.push((path.clone(), old, new)),
             Err(e) => {
-                let code = if e.starts_with("expect failed") {
-                    EXIT_GUARD
-                } else {
-                    EXIT_USAGE
-                };
-                eprintln!("tarn: {path}: {e}");
+                // A failed `expect` is a guard failure (3); a malformed batch is
+                // a usage error (2). Derived from the error's type, not its text.
+                let code = if e.is_guard() { EXIT_GUARD } else { EXIT_USAGE };
+                eprintln!("tarn: {path}: {}", e.message());
                 return code;
             }
         }

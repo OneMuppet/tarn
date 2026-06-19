@@ -167,7 +167,28 @@ pub enum Op {
 /// line numbers; expectations are checked first, conflicts (two ops touching the
 /// same line) are rejected, and the whole batch fails as a unit (returns `Err`)
 /// without producing partial output.
-pub fn apply_ops(content: &str, ops: &[Op]) -> Result<String, String> {
+/// Why an `apply` batch failed. Typed so the command layer maps it to the right
+/// exit code without sniffing the message: `Guard` = an `expect` didn't match
+/// the file (exit 3), `Usage` = the batch is malformed — out of range, or two
+/// ops touch the same line (exit 2).
+#[derive(Debug)]
+pub enum OpError {
+    Guard(String),
+    Usage(String),
+}
+
+impl OpError {
+    pub fn message(&self) -> &str {
+        match self {
+            OpError::Guard(m) | OpError::Usage(m) => m,
+        }
+    }
+    pub fn is_guard(&self) -> bool {
+        matches!(self, OpError::Guard(_))
+    }
+}
+
+pub fn apply_ops(content: &str, ops: &[Op]) -> Result<String, OpError> {
     let (end, fin) = style(content);
     let orig: Vec<String> = split(content);
     let n = orig.len();
@@ -177,7 +198,11 @@ pub fn apply_ops(content: &str, ops: &[Op]) -> Result<String, String> {
         if let Op::Expect(line, want) = op {
             match orig.get(line.wrapping_sub(1)) {
                 Some(actual) if line >= &1 && actual == want => {}
-                _ => return Err(format!("expect failed at line {line}: file does not match")),
+                _ => {
+                    return Err(OpError::Guard(format!(
+                        "expect failed at line {line}: file does not match"
+                    )))
+                }
             }
         }
     }
@@ -191,28 +216,39 @@ pub fn apply_ops(content: &str, ops: &[Op]) -> Result<String, String> {
             Op::Expect(..) => {}
             Op::Replace(line, text) => {
                 if *line == 0 || *line > n {
-                    return Err(format!("replace: line {line} out of range (1..={n})"));
+                    return Err(OpError::Usage(format!(
+                        "replace: line {line} out of range (1..={n})"
+                    )));
                 }
                 let i = line - 1;
                 if deleted[i] || replaced[i].is_some() {
-                    return Err(format!("conflict: line {line} edited twice"));
+                    return Err(OpError::Usage(format!(
+                        "conflict: line {line} edited twice"
+                    )));
                 }
                 replaced[i] = Some(text_lines(text));
             }
             Op::Delete(a, b) => {
                 if *a == 0 || a > b || *b > n {
-                    return Err(format!("delete: range {a}-{b} out of range (1..={n})"));
+                    return Err(OpError::Usage(format!(
+                        "delete: range {a}-{b} out of range (1..={n})"
+                    )));
                 }
                 for i in (a - 1)..*b {
                     if deleted[i] || replaced[i].is_some() {
-                        return Err(format!("conflict: line {} edited twice", i + 1));
+                        return Err(OpError::Usage(format!(
+                            "conflict: line {} edited twice",
+                            i + 1
+                        )));
                     }
                     deleted[i] = true;
                 }
             }
             Op::Insert(after, text) => {
                 if *after > n {
-                    return Err(format!("insert: line {after} out of range (0..={n})"));
+                    return Err(OpError::Usage(format!(
+                        "insert: line {after} out of range (0..={n})"
+                    )));
                 }
                 inserts[*after].extend(text_lines(text));
             }
