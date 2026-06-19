@@ -614,6 +614,109 @@ pub fn find_json(pattern: &str, matches: &[FindMatch], total: usize) -> String {
     )
 }
 
+// --- tree (repo orientation) -------------------------------------------------
+/// One node of a directory tree. `lines` is the file's line count when the
+/// caller asked for it (`--lines`); `None` for directories or when not counted.
+pub struct TreeEntry {
+    pub name: String,
+    pub is_dir: bool,
+    pub lines: Option<usize>,
+    pub children: Vec<TreeEntry>,
+}
+
+impl TreeEntry {
+    fn counts(&self) -> (usize, usize) {
+        let mut files = 0;
+        let mut dirs = 0;
+        for c in &self.children {
+            if c.is_dir {
+                dirs += 1;
+            } else {
+                files += 1;
+            }
+            let (f, d) = c.counts();
+            files += f;
+            dirs += d;
+        }
+        (files, dirs)
+    }
+}
+
+/// Human-readable directory tree with `├──`/`└──` connectors, directories
+/// first. The root row is the path itself; the footer summarizes the counts.
+pub fn tree_view(root: &TreeEntry, color: bool) -> String {
+    let (files, dirs) = root.counts();
+    let mut out = String::new();
+    let plural = |n: usize, s: &str| {
+        if n == 1 {
+            s.to_string()
+        } else {
+            format!("{s}s")
+        }
+    };
+    let head = format!(
+        "┌─ tree {} ─ {} {} · {} {} ",
+        jstr(&root.name),
+        files,
+        plural(files, "file"),
+        dirs,
+        plural(dirs, "dir")
+    );
+    out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(16))));
+    out.push('\n');
+    out.push_str(&paint(color, &format!("{COPPER}{BOLD}"), &root.name));
+    out.push('\n');
+    tree_rows(&root.children, "", &mut out, color);
+    out.push_str(&paint(color, COPPER, &format!("└{}", "─".repeat(48))));
+    out.push('\n');
+    out
+}
+
+fn tree_rows(nodes: &[TreeEntry], prefix: &str, out: &mut String, color: bool) {
+    for (i, n) in nodes.iter().enumerate() {
+        let last = i + 1 == nodes.len();
+        let connector = if last { "└── " } else { "├── " };
+        out.push_str(&paint(color, DIM, prefix));
+        out.push_str(&paint(color, DIM, connector));
+        if n.is_dir {
+            out.push_str(&paint(
+                color,
+                &format!("{COPPER}{BOLD}"),
+                &format!("{}/", n.name),
+            ));
+        } else {
+            out.push_str(&n.name);
+            if let Some(l) = n.lines {
+                out.push_str(&paint(color, DIM, &format!("  ({l} ln)")));
+            }
+        }
+        out.push('\n');
+        if !n.children.is_empty() {
+            let next = format!("{prefix}{}", if last { "    " } else { "│   " });
+            tree_rows(&n.children, &next, out, color);
+        }
+    }
+}
+
+/// Machine-readable tree: a nested `{name,type,lines?,children?}` structure.
+pub fn tree_json(root: &TreeEntry) -> String {
+    fn node(e: &TreeEntry) -> String {
+        let mut parts = vec![
+            format!("\"name\":{}", jstr(&e.name)),
+            format!("\"type\":\"{}\"", if e.is_dir { "dir" } else { "file" }),
+        ];
+        if let Some(l) = e.lines {
+            parts.push(format!("\"lines\":{l}"));
+        }
+        if e.is_dir {
+            let kids: Vec<String> = e.children.iter().map(node).collect();
+            parts.push(format!("\"children\":[{}]", kids.join(",")));
+        }
+        format!("{{{}}}", parts.join(","))
+    }
+    format!("{}\n", node(root))
+}
+
 // --- refs (find-references / callers) ----------------------------------------
 /// Human-readable usage sites for a symbol: each hit with its enclosing scope,
 /// grouped by file. The definition site itself is excluded by the caller, so
@@ -964,6 +1067,45 @@ mod tests {
         let v = refs_view("foo", &[top], 1, false);
         assert!(v.contains("refs \"foo\""));
         assert!(v.contains("↳ (top level)"));
+    }
+
+    #[test]
+    fn tree_json_and_view_shape() {
+        let root = TreeEntry {
+            name: "proj".into(),
+            is_dir: true,
+            lines: None,
+            children: vec![
+                TreeEntry {
+                    name: "src".into(),
+                    is_dir: true,
+                    lines: None,
+                    children: vec![TreeEntry {
+                        name: "main.rs".into(),
+                        is_dir: false,
+                        lines: Some(42),
+                        children: vec![],
+                    }],
+                },
+                TreeEntry {
+                    name: "README.md".into(),
+                    is_dir: false,
+                    lines: None,
+                    children: vec![],
+                },
+            ],
+        };
+        let j = tree_json(&root);
+        assert!(j.contains("\"name\":\"proj\",\"type\":\"dir\""));
+        assert!(j.contains("\"name\":\"main.rs\",\"type\":\"file\",\"lines\":42"));
+        // files omit children; a file with no count omits "lines"
+        assert!(j.contains("\"name\":\"README.md\",\"type\":\"file\"}"));
+        // counts: 2 files (main.rs, README.md), 1 dir (src)
+        assert_eq!(root.counts(), (2, 1));
+        let v = tree_view(&root, false);
+        assert!(v.contains("2 files · 1 dir "));
+        assert!(v.contains("└── README.md"));
+        assert!(v.contains("main.rs  (42 ln)"));
     }
 
     #[test]

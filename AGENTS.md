@@ -37,6 +37,7 @@ tarn check src/server.rs             # 6. verify you left no junk
 
 | Task | Command |
 | --- | --- |
+| Orient in a repo | `tarn tree [path] [--depth N] [--lines] [--json]` |
 | Map a file or repo | `tarn outline <path> [--depth N] [--json]` |
 | Search (file or dir) | `tarn find <path> <pat> [-i -w -c -l --enclosing -A/-B/-C N --json]` |
 | Read one definition | `tarn peek <file> <name>` |

@@ -88,6 +88,7 @@ fn run(args: &[String]) -> u8 {
         "peek" => cmd_peek(&args[1..]),
         "defs" => cmd_defs(&args[1..]),
         "refs" => cmd_refs(&args[1..]),
+        "tree" => cmd_tree(&args[1..]),
         "find" => cmd_find(&args[1..]),
         "check" => cmd_check(&args[1..]),
         "diff" => cmd_diff(&args[1..]),
@@ -1093,6 +1094,129 @@ fn cmd_refs(args: &[String]) -> u8 {
     EXIT_OK
 }
 
+/// `tree [path] [--json] [--depth N] [--lines]` — repo orientation: a fast,
+/// vendor-aware directory tree (same skip rules as the rest of tarn: hidden
+/// entries, target/node_modules/dist/build, symlinks). `--lines` annotates each
+/// file with its line count; `--depth N` limits recursion. Path defaults to ".".
+fn cmd_tree(args: &[String]) -> u8 {
+    let json = args.iter().any(|a| a == "--json");
+    let with_lines = args.iter().any(|a| a == "--lines");
+    let color_pref = color_flag(args);
+    let mut depth: Option<usize> = None;
+    let mut path = ".";
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" | "--lines" | "--plain" | "--color" => {}
+            "--depth" => match next_usize(args, &mut i) {
+                Some(n) => depth = Some(n),
+                None => return usage_err("tree [path] --depth N"),
+            },
+            s if s.starts_with("--") => {
+                eprintln!("tarn: unknown flag {s}");
+                return EXIT_USAGE;
+            }
+            s => path = s,
+        }
+        i += 1;
+    }
+
+    let p = PathBuf::from(path);
+    if !p.exists() {
+        eprintln!("tarn: no such path: {path}");
+        return EXIT_NOT_FOUND;
+    }
+    let is_dir = p.is_dir();
+    let root = render::TreeEntry {
+        name: path.to_string(),
+        is_dir,
+        lines: if is_dir || !with_lines {
+            None
+        } else {
+            count_lines(&p)
+        },
+        children: if is_dir {
+            tree_children(&p, depth, with_lines)
+        } else {
+            Vec::new()
+        },
+    };
+
+    if json {
+        print!("{}", render::tree_json(&root));
+    } else {
+        print!(
+            "{}",
+            render::tree_view(&root, color_pref.unwrap_or_else(use_color))
+        );
+    }
+    let _ = io::stdout().flush();
+    EXIT_OK
+}
+
+/// Recursively build a directory's children, applying the shared vendor/hidden/
+/// symlink skip rules. `depth` is the remaining levels (None = unlimited).
+fn tree_children(dir: &PathBuf, depth: Option<usize>, with_lines: bool) -> Vec<render::TreeEntry> {
+    if depth == Some(0) {
+        return Vec::new();
+    }
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+    let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    paths.sort();
+    let next_depth = depth.map(|d| d - 1);
+    let mut out = Vec::new();
+    for path in paths {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if name.starts_with('.') {
+            continue;
+        }
+        if fs::symlink_metadata(&path)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        if path.is_dir() {
+            if is_vendor_dir(&name) {
+                continue;
+            }
+            out.push(render::TreeEntry {
+                name,
+                is_dir: true,
+                lines: None,
+                children: tree_children(&path, next_depth, with_lines),
+            });
+        } else {
+            out.push(render::TreeEntry {
+                name,
+                is_dir: false,
+                lines: if with_lines { count_lines(&path) } else { None },
+                children: Vec::new(),
+            });
+        }
+    }
+    // Directories first, then files; each group already sorted by `paths.sort()`.
+    out.sort_by_key(|e| !e.is_dir);
+    out
+}
+
+/// Line count for `--lines`, or None for binary/unreadable files (so a binary
+/// shows as a plain entry rather than a bogus count).
+fn count_lines(path: &PathBuf) -> Option<usize> {
+    let bytes = fs::read(path).ok()?;
+    if bytes.iter().take(8192).any(|&b| b == 0) {
+        return None;
+    }
+    let text = std::str::from_utf8(&bytes).ok()?;
+    Some(text.lines().count())
+}
+
 fn cmd_peek(args: &[String]) -> u8 {
     let json = args.iter().any(|a| a == "--json");
     let color_pref = color_flag(args);
@@ -1487,6 +1611,13 @@ fn word_occurrences(hay: &[u8], needle: &[u8]) -> usize {
 
 /// Files to search: a single file as-is, or every readable file under a
 /// directory (skipping hidden entries and common build/vendor dirs).
+/// Build/vendor directories skipped by every recursive walk, so output is
+/// project code, not dependencies. Shared by `walk` (find/refs/rename/…) and
+/// `tree` so they never drift.
+fn is_vendor_dir(name: &str) -> bool {
+    matches!(name, "target" | "node_modules" | "dist" | "build")
+}
+
 fn collect_files(path: &str) -> Vec<PathBuf> {
     let p = PathBuf::from(path);
     if p.is_file() {
@@ -1520,7 +1651,7 @@ fn walk(dir: &PathBuf, out: &mut Vec<PathBuf>) {
             continue;
         }
         if path.is_dir() {
-            if matches!(name.as_str(), "target" | "node_modules" | "dist" | "build") {
+            if is_vendor_dir(&name) {
                 continue;
             }
             walk(&path, out);
@@ -2047,6 +2178,7 @@ USAGE:
     tarn peek    <file> <name>  show just the definition named <name>  [--json]
     tarn defs    <name> [path]   where <name> is DEFINED (go-to-definition) [--json]
     tarn refs    <name> [path]   USES of <name> w/ scope, excl. the def [--json]
+    tarn tree    [path]          vendor-aware directory tree [--depth N --lines --json]
     tarn find    <path> <text>  search a file OR directory; hits with file+line
         -i (ignore case) | -w (whole word) | --enclosing | --limit N | --json
         -c/--count (just the number) | -l/--files (just filenames) | --ext rs,toml

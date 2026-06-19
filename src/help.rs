@@ -36,6 +36,13 @@ pub const COMMANDS: &[Cmd] = &[
         examples: &["tarn refs handle_request src/", "tarn refs Config --json"],
     },
     Cmd {
+        name: "tree",
+        group: "navigate",
+        usage: "tarn tree [path] [--depth N] [--lines] [--json]",
+        summary: "Repo orientation: a fast, vendor-aware directory tree (skips hidden, target/node_modules/dist/build, symlinks). --lines annotates files with line counts.",
+        examples: &["tarn tree", "tarn tree src/ --depth 2 --lines", "tarn tree --json"],
+    },
+    Cmd {
         name: "find",
         group: "navigate",
         usage: "tarn find <path> <pattern> [-i] [-w] [-c] [-l] [--enclosing] [-A/-B/-C N] [--ext rs,toml] [--limit N] [--json] [-- <pattern>]",
@@ -243,9 +250,9 @@ mod tests {
     fn manifest_covers_every_dispatched_command() {
         // Keep this list in sync with the dispatcher in main.rs::run.
         for name in [
-            "outline", "defs", "refs", "find", "peek", "show", "replace", "insert", "delete",
-            "write", "apply", "rename", "json", "toml", "yaml", "check", "diff", "get", "set",
-            "unset", "keys", "view",
+            "outline", "defs", "refs", "tree", "find", "peek", "show", "replace", "insert",
+            "delete", "write", "apply", "rename", "json", "toml", "yaml", "check", "diff", "get",
+            "set", "unset", "keys", "view",
         ] {
             assert!(find_cmd(name).is_some(), "manifest missing command: {name}");
         }

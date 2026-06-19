@@ -105,6 +105,7 @@ For an agent, reading a whole file just to find one thing burns context. These
 two give you structure cheaply — see the shape, then jump to the part you need.
 
 ```sh
+tarn tree   src/ --lines       # vendor-aware file tree (skips node_modules/target/…)
 tarn outline app.py            # a map of defs / classes / headings + line ranges
 tarn outline src/ --depth 0    # a whole-REPO map (recursive, one pass), top-level only
 tarn peek   app.py do_GET      # show JUST one definition, by name (no line counting)
