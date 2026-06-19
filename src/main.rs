@@ -183,6 +183,10 @@ fn cmd_set(args: &[String]) -> u8 {
     }
 
     let old = read_or_empty(file);
+    if let Err(e) = check_expect(&flags.expect, envfile::get(&old, &key)) {
+        eprintln!("tarn: {e}");
+        return EXIT_GUARD;
+    }
     let new = envfile::set(&old, &key, &value);
     commit(file, "set", &flags, &old, &new)
 }
@@ -194,6 +198,10 @@ fn cmd_unset(args: &[String]) -> u8 {
         _ => return usage_err("unset <file> <KEY>"),
     };
     let old = read_or_empty(file);
+    if let Err(e) = check_expect(&flags.expect, envfile::get(&old, key)) {
+        eprintln!("tarn: {e}");
+        return EXIT_GUARD;
+    }
     let new = envfile::unset(&old, key);
     commit(file, "unset", &flags, &old, &new)
 }

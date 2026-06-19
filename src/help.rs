@@ -135,14 +135,14 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd {
         name: "set",
         group: "env",
-        usage: "tarn set <file> <KEY=VAL>   (or: set <file> <KEY> <VAL>)",
+        usage: "tarn set <file> <KEY=VAL>   (or: KEY VAL)  [--expect CUR] [--diff|--json|--dry-run]",
         summary: "Add or update a key in a .env file, preserving comments and order.",
         examples: &["tarn set .env PORT 8080"],
     },
     Cmd {
         name: "unset",
         group: "env",
-        usage: "tarn unset <file> <KEY>   (alias: rm)",
+        usage: "tarn unset <file> <KEY> [--expect CUR]   (alias: rm)",
         summary: "Remove a key from a .env file.",
         examples: &["tarn unset .env OLD_KEY"],
     },
