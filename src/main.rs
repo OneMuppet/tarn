@@ -13,6 +13,7 @@ mod render;
 mod structure;
 mod terminal;
 mod textfile;
+mod toml;
 
 use render::Window;
 use std::fs;
@@ -93,6 +94,7 @@ fn run(args: &[String]) -> u8 {
         "apply" => cmd_apply(&args[1..]),
         "rename" => cmd_rename(&args[1..]),
         "json" => cmd_json(&args[1..]),
+        "toml" => cmd_toml(&args[1..]),
         // Anything else is treated as a filename to open.
         _ => open_file(first),
     }
@@ -600,6 +602,66 @@ fn json_set(args: &[String]) -> u8 {
         }
         Err(e) => {
             eprintln!("tarn: invalid JSON in {file}: {e}");
+            EXIT_USAGE
+        }
+    }
+}
+
+/// `toml get|set <file> <path> [value]` — surgical, format-preserving TOML.
+fn cmd_toml(args: &[String]) -> u8 {
+    match args.first().map(String::as_str) {
+        Some("get") => toml_get(&args[1..]),
+        Some("set") => toml_set(&args[1..]),
+        _ => usage_err("toml get <file> <path>   |   toml set <file> <path> <value>"),
+    }
+}
+
+fn toml_get(args: &[String]) -> u8 {
+    let (file, path) = match (args.first(), args.get(1)) {
+        (Some(f), Some(p)) => (f.as_str(), p.as_str()),
+        _ => return usage_err("toml get <file> <path>"),
+    };
+    let content = match fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
+    match toml::get(&content, path) {
+        Ok(Some(v)) => {
+            println!("{v}");
+            EXIT_OK
+        }
+        Ok(None) => EXIT_NOT_FOUND,
+        Err(e) => {
+            eprintln!("tarn: {file}: {e}");
+            EXIT_USAGE
+        }
+    }
+}
+
+fn toml_set(args: &[String]) -> u8 {
+    let flags = parse_edit_flags(args);
+    let (file, path, value) = match (flags.rest.first(), flags.rest.get(1), flags.rest.get(2)) {
+        (Some(f), Some(p), Some(v)) => (f.as_str(), p.as_str(), v.as_str()),
+        _ => return usage_err("toml set <file> <path> <value> [--dry-run|--diff|--json]"),
+    };
+    let old = match fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("tarn: cannot read {file}");
+            return EXIT_NOT_FOUND;
+        }
+    };
+    match toml::set(&old, path, value) {
+        Ok(Some(new)) => commit(file, "toml set", &flags, &old, &new),
+        Ok(None) => {
+            eprintln!("tarn: path not found: {path}");
+            EXIT_NOT_FOUND
+        }
+        Err(e) => {
+            eprintln!("tarn: {file}: {e}");
             EXIT_USAGE
         }
     }
@@ -1437,6 +1499,8 @@ USAGE:
         --in <def> (within that def; first if names repeat) | --substring | --dry-run
     tarn json get <file> <path>           read a JSON value by path (a.b.0.c)
     tarn json set <file> <path> <value>   set it, preserving file formatting
+    tarn toml get <file> <path>           read a TOML value by path (a.b.c)
+    tarn toml set <file> <path> <value>   set it, preserving comments + layout
         edit flags:  --diff (preview) | --json | --dry-run (don't write)
         --expect <text>  guard: fail (exit 3) unless the target matches
 

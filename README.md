@@ -288,6 +288,25 @@ tarn json set config.json tags '["x","y"]' --diff   # valid JSON is used verbati
 and takes `--dry-run`/`--diff`. It's hand-rolled, zero-dep, and JSON-only (a key
 that literally contains `.` isn't addressable).
 
+### …and TOML, the same way
+
+`tarn toml get/set` does the same surgical, format-preserving edit for TOML —
+ideal for `Cargo.toml`, `pyproject.toml`, and friends. Paths are dotted across
+table headers and keys; comments, key order, and layout are untouched.
+
+```sh
+tarn toml get Cargo.toml package.version          # "0.1.0"  (strings decoded)
+tarn toml set Cargo.toml package.version 0.2.0    # → version = "0.2.0"  (auto-quoted)
+tarn toml set Cargo.toml profile.release.opt-level 2 --diff
+tarn toml set pyproject.toml tool.ruff.line-length 100
+```
+
+Genuine bare values (numbers, bools, dates) stay bare; anything else (e.g. a
+semver) is quoted so the result is always valid TOML. It handles `[table]`/
+`[table.sub]` headers, dotted keys, and single-line values; multiline strings,
+multiline arrays, and arrays-of-tables (`[[x]]`) are tracked so parsing never
+breaks, but `set` on them errors rather than risk a bad edit (it never corrupts).
+
 ## The scriptable side (for AI harnesses & scripts)
 
 These are non-interactive and deterministic. Edits are **surgical**: comments,
@@ -362,6 +381,7 @@ src/envfile.rs    surgical get/set/unset/keys
 src/textfile.rs   line-addressable replace/insert/delete
 src/render.rs     the `show` snapshot view + `--diff` renderer
 src/structure.rs  heuristic outline / enclosing-scope detection
+src/toml.rs       surgical TOML get/set by path
 src/help.rs       agent-native manifest (`help --json`) + per-command help
 ```
 
