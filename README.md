@@ -109,6 +109,7 @@ tarn outline app.py            # a map of defs / classes / headings + line range
 tarn outline src/ --depth 0    # a whole-REPO map (recursive, one pass), top-level only
 tarn peek   app.py do_GET      # show JUST one definition, by name (no line counting)
 tarn defs   handle_request src/ # go-to-definition: WHERE a symbol is defined, repo-wide
+tarn refs   handle_request src/ # find-references: WHO uses it (excludes the def itself)
 tarn show   app.py --block 27  # show the whole def at line 27 (any body line works)
 tarn find   app.py 'send_'     # literal search; each hit with its line number
 tarn find   src/   'send_'     # search a whole DIRECTORY (recursive), grouped by file

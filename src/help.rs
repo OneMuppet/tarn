@@ -29,6 +29,13 @@ pub const COMMANDS: &[Cmd] = &[
         examples: &["tarn defs handle_request src/", "tarn defs Config --json"],
     },
     Cmd {
+        name: "refs",
+        group: "navigate",
+        usage: "tarn refs <name> [path] [--json] [--limit N]",
+        summary: "Find-references: word-boundary USES of <name> with their enclosing scope, EXCLUDING the definition site. The complement to defs: who uses this.",
+        examples: &["tarn refs handle_request src/", "tarn refs Config --json"],
+    },
+    Cmd {
         name: "find",
         group: "navigate",
         usage: "tarn find <path> <pattern> [-i] [-w] [-c] [-l] [--enclosing] [-A/-B/-C N] [--ext rs,toml] [--limit N] [--json] [-- <pattern>]",
@@ -236,9 +243,9 @@ mod tests {
     fn manifest_covers_every_dispatched_command() {
         // Keep this list in sync with the dispatcher in main.rs::run.
         for name in [
-            "outline", "defs", "find", "peek", "show", "replace", "insert", "delete", "write", "apply",
-            "rename", "json", "toml", "yaml", "check", "diff", "get", "set", "unset", "keys",
-            "view",
+            "outline", "defs", "refs", "find", "peek", "show", "replace", "insert", "delete",
+            "write", "apply", "rename", "json", "toml", "yaml", "check", "diff", "get", "set",
+            "unset", "keys", "view",
         ] {
             assert!(find_cmd(name).is_some(), "manifest missing command: {name}");
         }

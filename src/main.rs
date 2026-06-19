@@ -87,6 +87,7 @@ fn run(args: &[String]) -> u8 {
         "outline" => cmd_outline(&args[1..]),
         "peek" => cmd_peek(&args[1..]),
         "defs" => cmd_defs(&args[1..]),
+        "refs" => cmd_refs(&args[1..]),
         "find" => cmd_find(&args[1..]),
         "check" => cmd_check(&args[1..]),
         "diff" => cmd_diff(&args[1..]),
@@ -973,7 +974,120 @@ fn cmd_defs(args: &[String]) -> u8 {
     if json {
         print!("{}", render::defs_json(name, &found));
     } else {
-        print!("{}", render::defs_view(name, &found, color_pref.unwrap_or_else(use_color)));
+        print!(
+            "{}",
+            render::defs_view(name, &found, color_pref.unwrap_or_else(use_color))
+        );
+    }
+    let _ = io::stdout().flush();
+    EXIT_OK
+}
+
+/// `refs <name> [path] [--json] [--limit N]` — find-references: word-boundary
+/// USES of `name` across a file or directory, each with its enclosing scope,
+/// EXCLUDING the definition site(s) themselves. The symbol-aware complement to
+/// `defs`: "who uses this", not "where is it". Exit 1 if no uses found.
+fn cmd_refs(args: &[String]) -> u8 {
+    let json = args.iter().any(|a| a == "--json");
+    let color_pref = color_flag(args);
+    // Positionals: everything after a bare `--` is literal; before it, skip flags.
+    let mut pos: Vec<&str> = Vec::new();
+    let mut literal = false;
+    let mut limit = 200usize;
+    let mut i = 0;
+    while i < args.len() {
+        let a = args[i].as_str();
+        if literal {
+            pos.push(a);
+        } else if a == "--" {
+            literal = true;
+        } else if a == "--limit" {
+            match next_usize(args, &mut i) {
+                Some(n) => limit = n,
+                None => return usage_err("refs <name> [path] --limit N"),
+            }
+        } else if !a.starts_with('-') {
+            pos.push(a);
+        }
+        i += 1;
+    }
+    let name = match pos.first() {
+        Some(n) => *n,
+        None => return usage_err("refs <name> [path] [--json] [--limit N]"),
+    };
+    let path = pos.get(1).copied().unwrap_or(".");
+    let needle = name.as_bytes();
+
+    let files = collect_files(path);
+    let multi = files.len() > 1;
+    let mut matches: Vec<render::FindMatch> = Vec::new();
+    let mut total = 0usize;
+    let mut hit_files = 0usize;
+    for f in &files {
+        let bytes = match fs::read(f) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        if bytes.iter().take(8192).any(|&b| b == 0) {
+            continue;
+        }
+        let content = match std::str::from_utf8(&bytes) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let fname = f.to_string_lossy().to_string();
+        let defs = structure::outline(&fname, content);
+        // Lines that START a definition of `name` are the declaration sites —
+        // exclude them so we report uses, not the definition itself.
+        let decl_lines: Vec<usize> = defs
+            .iter()
+            .filter(|d| d.name == name)
+            .map(|d| d.line)
+            .collect();
+        let mut file_hit = false;
+        for (idx, line) in content.lines().enumerate() {
+            let lineno = idx + 1;
+            let occ = word_occurrences(line.as_bytes(), needle);
+            if occ == 0 {
+                continue;
+            }
+            // On a declaration line, one occurrence IS the declaration token —
+            // skip the line only if that's all it has. A self-recursive call or a
+            // single-line body that also uses the name (occ ≥ 2) is a real use.
+            if decl_lines.contains(&lineno) && occ < 2 {
+                continue;
+            }
+            total += 1;
+            file_hit = true;
+            if matches.len() < limit {
+                matches.push(render::FindMatch {
+                    file: fname.clone(),
+                    line: lineno,
+                    text: line.to_string(),
+                    scope: structure::qualified_in(&defs, lineno),
+                    before: Vec::new(),
+                    after: Vec::new(),
+                });
+            }
+        }
+        if file_hit {
+            hit_files += 1;
+        }
+    }
+
+    if total == 0 {
+        eprintln!("tarn: no uses of '{name}' under {path}");
+        return EXIT_NOT_FOUND;
+    }
+    if json {
+        print!("{}", render::refs_json(name, &matches, total));
+    } else {
+        let color = color_pref.unwrap_or_else(use_color);
+        let shown_files = if multi { hit_files } else { 1 };
+        print!("{}", render::refs_view(name, &matches, shown_files, color));
+        if total > matches.len() {
+            println!("… {} more use(s) (raise --limit)", total - matches.len());
+        }
     }
     let _ = io::stdout().flush();
     EXIT_OK
@@ -1338,6 +1452,37 @@ fn find_in(hay: &[u8], needle: &[u8], ci: bool, word: bool) -> bool {
         return true;
     }
     false
+}
+
+/// Count non-overlapping, word-boundary, case-sensitive occurrences of `needle`
+/// in `hay`. Used by `refs` to tell a bare declaration line (one occurrence: the
+/// name itself) from a line that ALSO uses the symbol (self-recursion, a
+/// single-line `impl Body { ... Name ... }`), so the latter isn't dropped.
+fn word_occurrences(hay: &[u8], needle: &[u8]) -> usize {
+    if needle.is_empty() || needle.len() > hay.len() {
+        return 0;
+    }
+    let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut count = 0;
+    let mut i = 0;
+    'outer: while i + needle.len() <= hay.len() {
+        for k in 0..needle.len() {
+            if hay[i + k] != needle[k] {
+                i += 1;
+                continue 'outer;
+            }
+        }
+        let end = i + needle.len();
+        let before_ok = i == 0 || !is_word(hay[i - 1]);
+        let after_ok = end == hay.len() || !is_word(hay[end]);
+        if before_ok && after_ok {
+            count += 1;
+            i = end; // non-overlapping
+        } else {
+            i += 1;
+        }
+    }
+    count
 }
 
 /// Files to search: a single file as-is, or every readable file under a
@@ -1901,6 +2046,7 @@ USAGE:
         --depth N (limit nesting)  |  --json
     tarn peek    <file> <name>  show just the definition named <name>  [--json]
     tarn defs    <name> [path]   where <name> is DEFINED (go-to-definition) [--json]
+    tarn refs    <name> [path]   USES of <name> w/ scope, excl. the def [--json]
     tarn find    <path> <text>  search a file OR directory; hits with file+line
         -i (ignore case) | -w (whole word) | --enclosing | --limit N | --json
         -c/--count (just the number) | -l/--files (just filenames) | --ext rs,toml
@@ -2004,5 +2150,23 @@ mod tests {
         assert!(find_in(b"import port", b"port", false, true));
         // word + case-insensitive together
         assert!(find_in(b"The PORT", b"port", true, true));
+    }
+
+    #[test]
+    fn word_occurrences_counts_uses() {
+        // Bare declaration: a single occurrence → refs skips the line.
+        assert_eq!(word_occurrences(b"fn foo() {", b"foo"), 1);
+        // Self-recursion on the def line: two occurrences → it's a real use.
+        assert_eq!(word_occurrences(b"fn foo() { foo(); }", b"foo"), 2);
+        // Single-line impl body using its own type repeatedly.
+        assert_eq!(
+            word_occurrences(b"impl Config { fn new() -> Config { Config } }", b"Config"),
+            3
+        );
+        // Word-boundary: substrings don't count.
+        assert_eq!(word_occurrences(b"import use_port port2 port", b"port"), 1);
+        // Non-overlapping.
+        assert_eq!(word_occurrences(b"aa aa aa", b"aa"), 3);
+        assert_eq!(word_occurrences(b"nothing here", b"foo"), 0);
     }
 }

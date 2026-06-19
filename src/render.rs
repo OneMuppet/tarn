@@ -339,7 +339,11 @@ pub fn defs_view(name: &str, items: &[(String, Def)], color: bool) -> String {
     out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(20))));
     out.push('\n');
     for (file, d) in items {
-        let loc = paint(color, &format!("{COPPER}{BOLD}"), &format!("{file}:{}", d.line));
+        let loc = paint(
+            color,
+            &format!("{COPPER}{BOLD}"),
+            &format!("{file}:{}", d.line),
+        );
         let kind = paint(color, DIM, &d.kind);
         let range = paint(color, DIM, &format!("({}–{})", d.line, d.end));
         out.push_str(&format!("{loc}  {kind} {}  {range}\n", d.name));
@@ -610,6 +614,93 @@ pub fn find_json(pattern: &str, matches: &[FindMatch], total: usize) -> String {
     )
 }
 
+// --- refs (find-references / callers) ----------------------------------------
+/// Human-readable usage sites for a symbol: each hit with its enclosing scope,
+/// grouped by file. The definition site itself is excluded by the caller, so
+/// this answers "who uses this", not "where is it".
+pub fn refs_view(name: &str, matches: &[FindMatch], files: usize, color: bool) -> String {
+    let mut out = String::new();
+    let scopes = matches.iter().filter(|m| m.scope.is_some()).count();
+    let span = if files > 1 {
+        format!(" in {files} files")
+    } else {
+        String::new()
+    };
+    let head = format!(
+        "┌─ refs {} ─ {} use{}{span} ─ {} in a scope ",
+        jstr(name),
+        matches.len(),
+        if matches.len() == 1 { "" } else { "s" },
+        scopes
+    );
+    out.push_str(&paint(color, COPPER, &format!("{head}{}", "─".repeat(16))));
+    out.push('\n');
+
+    let gw = matches
+        .iter()
+        .map(|m| m.line)
+        .max()
+        .unwrap_or(1)
+        .to_string()
+        .len()
+        .max(2);
+    let sep = paint(color, DIM, "│");
+    let multi = files > 1;
+    let mut cur = "";
+    for m in matches {
+        if multi && m.file != cur {
+            out.push_str(&paint(color, &format!("{COPPER}{BOLD}"), &m.file));
+            out.push('\n');
+            cur = &m.file;
+        }
+        let num = paint(
+            color,
+            &format!("{COPPER}{BOLD}"),
+            &format!("{:>w$}", m.line, w = gw),
+        );
+        let mut line = format!("{num} {sep} {}", m.text.trim_end());
+        match &m.scope {
+            Some((scope, a, b)) => {
+                line.push_str(&paint(color, DIM, &format!("   ↳ {scope} ({a}–{b})")))
+            }
+            None => line.push_str(&paint(color, DIM, "   ↳ (top level)")),
+        }
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out.push_str(&paint(color, COPPER, &format!("└{}", "─".repeat(48))));
+    out.push('\n');
+    out
+}
+
+/// Machine-readable usage sites. `total` is the full count; `matches` may be
+/// fewer (capped by `--limit`).
+pub fn refs_json(name: &str, matches: &[FindMatch], total: usize) -> String {
+    let items: Vec<String> = matches
+        .iter()
+        .map(|m| {
+            let scope = match &m.scope {
+                Some((s, a, b)) => format!(",\"in\":{},\"range\":[{},{}]", jstr(s), a, b),
+                None => String::new(),
+            };
+            format!(
+                "{{\"file\":{},\"line\":{},\"text\":{}{}}}",
+                jstr(&m.file),
+                m.line,
+                jstr(m.text.trim_end()),
+                scope
+            )
+        })
+        .collect();
+    format!(
+        "{{\"name\":{},\"total\":{},\"shown\":{},\"uses\":[{}]}}\n",
+        jstr(name),
+        total,
+        matches.len(),
+        items.join(",")
+    )
+}
+
 // --- rename -------------------------------------------------------------------
 /// Human-readable rename summary: per-file counts.
 pub fn rename_view(
@@ -830,6 +921,49 @@ mod tests {
             after: vec![],
         };
         assert!(!find_json("x", &[without], 1).contains("before"));
+    }
+
+    #[test]
+    fn refs_json_shape() {
+        let m = FindMatch {
+            file: "a.rs".into(),
+            line: 9,
+            text: "    foo();".into(),
+            scope: Some(("bar".into(), 5, 12)),
+            before: vec![],
+            after: vec![],
+        };
+        let j = refs_json("foo", &[m], 3);
+        assert!(j.contains("\"name\":\"foo\""));
+        assert!(j.contains("\"total\":3"));
+        assert!(j.contains("\"shown\":1"));
+        assert!(j.contains("\"uses\":["));
+        assert!(j.contains("\"in\":\"bar\",\"range\":[5,12]"));
+        // a top-level use omits the scope fields
+        let top = FindMatch {
+            file: "a.rs".into(),
+            line: 1,
+            text: "foo();".into(),
+            scope: None,
+            before: vec![],
+            after: vec![],
+        };
+        assert!(!refs_json("foo", &[top], 1).contains("\"in\":"));
+    }
+
+    #[test]
+    fn refs_view_marks_top_level() {
+        let top = FindMatch {
+            file: "a.rs".into(),
+            line: 1,
+            text: "foo();".into(),
+            scope: None,
+            before: vec![],
+            after: vec![],
+        };
+        let v = refs_view("foo", &[top], 1, false);
+        assert!(v.contains("refs \"foo\""));
+        assert!(v.contains("↳ (top level)"));
     }
 
     #[test]
