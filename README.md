@@ -229,6 +229,7 @@ tarn delete  src/main.rs --def old_helper         # delete a WHOLE definition by
 cat new_fn.rs | tarn replace src/main.rs --def old_helper --diff   # swap a whole def from stdin
 some-generator | tarn write app.py --diff         # replace whole file from stdin
 git diff | tarn patch --dry-run                   # apply a unified diff (context-matched, atomic, multi-file)
+printf 'replace a 3 X\nfind b TODO -c\n' | tarn batch   # many commands in ONE process (no per-call spawn; ~34×)
 ```
 
 ```

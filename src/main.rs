@@ -185,6 +185,7 @@ fn run(args: &[String]) -> u8 {
         "write" => cmd_write(&args[1..]),
         "apply" => cmd_apply(&args[1..]),
         "patch" => cmd_patch(&args[1..]),
+        "batch" => cmd_batch(&args[1..]),
         "rename" => cmd_rename(&args[1..]),
         "json" => cmd_json(&args[1..]),
         "toml" => cmd_toml(&args[1..]),
@@ -2296,6 +2297,96 @@ fn cmd_write(args: &[String]) -> u8 {
     apply_edit(file, "write", &flags, |_| Ok(()), move |_| Ok(new.clone()))
 }
 
+/// `batch` — run a stream of tarn commands from stdin in ONE process, one
+/// command per line, so an agent doing many operations pays the OS
+/// process-spawn cost (the real bottleneck — tarn's own work is sub-millisecond)
+/// ONCE instead of per command. Blank lines and `#` comments are skipped; a
+/// `==> <command>` header is written to STDERR before each command so results
+/// stay attributable while stdout remains pure command output (so a batched
+/// `find --json` is cleanly machine-parseable). Exit code is the last non-zero
+/// command's (0 if all succeed).
+///
+/// Example (one spawn, not five):
+///     printf 'outline src/\ndefs Config src/\nreplace a.rs 3 X --expect Y\n' | tarn batch
+fn cmd_batch(args: &[String]) -> u8 {
+    if !args.is_empty() {
+        return usage_err("batch   (commands on stdin, one per line)");
+    }
+    let mut input = String::new();
+    if io::stdin().read_to_string(&mut input).is_err() {
+        eprintln!("tarn: failed to read stdin");
+        return EXIT_USAGE;
+    }
+    let mut worst = EXIT_OK;
+    let mut ran = 0usize;
+    for line in input.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let argv = tokenize(trimmed);
+        if argv.is_empty() {
+            continue;
+        }
+        // Guard against `batch` inside `batch` (stdin is already consumed).
+        if argv[0] == "batch" {
+            eprintln!("tarn: batch: nested `batch` ignored");
+            continue;
+        }
+        ran += 1;
+        // Framing → stderr so stdout stays pure command output (clean --json).
+        eprintln!("==> {trimmed}");
+        let code = run(&argv);
+        let _ = io::stdout().flush();
+        if code != EXIT_OK {
+            worst = code;
+        }
+    }
+    eprintln!("tarn: batch ran {ran} command(s)");
+    worst
+}
+
+/// Split a command line into argv, honouring single and double quotes so an
+/// argument may contain spaces (e.g. `replace f 3 'a b c'`). No escape
+/// sequences — quotes are the only grouping, which is all an agent needs.
+fn tokenize(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quote: Option<char> = None;
+    let mut started = false; // distinguishes an empty quoted arg "" from no arg
+    for c in line.chars() {
+        match quote {
+            Some(q) => {
+                if c == q {
+                    quote = None;
+                } else {
+                    cur.push(c);
+                }
+            }
+            None => match c {
+                '\'' | '"' => {
+                    quote = Some(c);
+                    started = true;
+                }
+                c if c.is_whitespace() => {
+                    if started {
+                        out.push(std::mem::take(&mut cur));
+                        started = false;
+                    }
+                }
+                _ => {
+                    cur.push(c);
+                    started = true;
+                }
+            },
+        }
+    }
+    if started {
+        out.push(cur);
+    }
+    out
+}
+
 /// `apply [file] [...]` — apply a batch of ops from stdin, atomically. Ops (one
 /// per line; `#` and blanks ignored), all against each file's ORIGINAL line
 /// numbers:
@@ -2830,6 +2921,7 @@ USAGE:
     tarn delete  <file> <A-B>             delete line range, or --def <name> for a whole def  (alias: del)
     tarn write   <file>                   replace file from stdin
     tarn apply   [file]                   batch ops from stdin, atomically
+    tarn batch                           run many tarn commands in one process (stdin)
     tarn patch                           apply a unified diff from stdin (atomic, strict)
         across files too: a `file <path>` line in the ops switches target
     tarn rename  <path> <old> <new>       whole-word rename in a file/dir
@@ -2943,6 +3035,22 @@ mod tests {
                 "word mismatch for {line:?} / {pat:?}"
             );
         }
+    }
+
+    #[test]
+    fn tokenize_handles_quotes_and_spaces() {
+        assert_eq!(
+            tokenize("find src/ TODO -c"),
+            vec!["find", "src/", "TODO", "-c"]
+        );
+        assert_eq!(
+            tokenize("replace f 3 'a b c'"),
+            vec!["replace", "f", "3", "a b c"]
+        );
+        assert_eq!(tokenize("x \"two words\" y"), vec!["x", "two words", "y"]);
+        assert_eq!(tokenize("  spaced   out  "), vec!["spaced", "out"]);
+        assert_eq!(tokenize("replace f 3 ''"), vec!["replace", "f", "3", ""]); // empty quoted arg kept
+        assert!(tokenize("   ").is_empty());
     }
 
     #[test]

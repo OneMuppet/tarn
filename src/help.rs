@@ -109,6 +109,13 @@ pub const COMMANDS: &[Cmd] = &[
         examples: &["printf 'file a.rs\\nreplace 3 X\\nfile b.rs\\ndelete 5-6\\n' | tarn apply --diff"],
     },
     Cmd {
+        name: "batch",
+        group: "edit",
+        usage: "tarn batch   (commands on stdin, one per line)",
+        summary: "Run many tarn commands in ONE process (one per stdin line; # and blanks skipped). Amortizes process-spawn cost across an agent session (~34× over per-call spawn); a `==> <cmd>` header goes to stderr so stdout stays clean.",
+        examples: &["printf 'outline src/\\ndefs Config src/\\nfind src/ TODO -c\\n' | tarn batch"],
+    },
+    Cmd {
         name: "patch",
         group: "edit",
         usage: "tarn patch [--diff|--json] [--dry-run]   (unified diff on stdin)",
@@ -262,8 +269,8 @@ mod tests {
         // Keep this list in sync with the dispatcher in main.rs::run.
         for name in [
             "outline", "defs", "refs", "tree", "find", "peek", "show", "replace", "insert",
-            "delete", "write", "apply", "patch", "rename", "json", "toml", "yaml", "check", "diff",
-            "get", "set", "unset", "keys", "view",
+            "delete", "write", "apply", "patch", "batch", "rename", "json", "toml", "yaml",
+            "check", "diff", "get", "set", "unset", "keys", "view",
         ] {
             assert!(find_cmd(name).is_some(), "manifest missing command: {name}");
         }
