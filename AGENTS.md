@@ -63,7 +63,7 @@ tarn check src/server.rs             # 7. verify you left no junk
 | Edit a whole def | `tarn delete <file> --def <name>` · `… \| tarn replace <file> --def <name>` |
 | Rewrite a file | `… \| tarn write <file>` |
 | Batch / cross-file edit | `… \| tarn apply [file]` (use `file <path>` lines; atomic) |
-| Run a whole session | `… \| tarn batch` (many commands in one process — ~34× over per-call spawn) |
+| Run a whole session | `… \| tarn batch` (one process, ~34× over spawn; ~10.5k edits/s on *small* files — each op is a full file rewrite, so for many edits to one large file use `apply`/`patch`, one pass) |
 | Apply a unified diff | `git diff \| tarn patch [--dry-run\|--diff]` (context-matched, relocates drifted hunks, atomic) |
 | Rename (whole-word) | `tarn rename <path> <old> <new> [--in <def>] [--dry-run]` |
 | Read/set/del JSON config | `tarn json get\|set\|del <file> <path> [value]` |

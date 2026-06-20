@@ -342,7 +342,7 @@ OPS
 
 `tarn batch` runs a whole **command stream** (not just edit ops) in one process,
 so an edit-heavy session isn't paying OS process-spawn per call — ~10,500
-edits/sec, ~34× over per-call spawn (see [Performance](#performance)).
+edits/sec, ~34× over per-call spawn (see [Performance](#performance)). That figure is *small-file* throughput — each op is a full file read+write, so it scales inversely with file size; for many edits to one large file use `apply`/`patch`, which apply all ops in a single pass.
 
 ### Rename across a file or directory
 
@@ -453,6 +453,7 @@ real multiplier for an agent is **repeated navigation + batched edits**:
 - **`tarn batch`** runs a whole command session in one process — ~10,500
   edits/sec, **~34× over per-call process spawn**. An agent's edit loop is
   bottlenecked by OS spawn (~3.3 ms/call), not by tarn's edit work (~0.1–0.2 ms).
+  Caveat: that is *small-file* throughput. Each `batch` op is a full read+write, so it scales inversely with file size (measured: ~1,980 edits/s at 5k lines, ~178/s at 100k). For many edits to **one large file**, `tarn apply`/`patch` apply every op in a single pass — ~9,000 edits/s even at 100k lines.
 - The structure pass behind `outline`/`defs`/`refs`/`peek` is allocation-free on
   the hot line scan — parsing a 289 MB file dropped from ~10 s to ~1.5 s.
 - The diff renderer trims the common prefix/suffix so a one-line change in a
