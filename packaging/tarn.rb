@@ -11,7 +11,7 @@ class Tarn < Formula
   homepage "https://github.com/OneMuppet/tarn"
   # Update per release: the source tarball for the tag, and its sha256.
   url "https://github.com/OneMuppet/tarn/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "66eb77f10269e3dc6750d7abc9d255f2ddccf6032566d0f3d1ece29011c2649c"
   license "MIT"
   head "https://github.com/OneMuppet/tarn.git", branch: "main"
 
