@@ -125,7 +125,7 @@
   <div class="stats">
     <div class="stat"><div class="k">Dependencies</div><div class="v">0</div><div class="d">pure Rust std; mmap, threads & SIMD via core/libc — no crates</div></div>
     <div class="stat"><div class="k">Commands</div><div class="v">24</div><div class="d">navigate · read · edit · config · verify</div></div>
-    <div class="stat"><div class="k">vs ripgrep (380 MB)</div><div class="v">0.69×</div><div class="d">~38 ms vs ~55 ms counting a single large file</div></div>
+    <div class="stat"><div class="k">vs ripgrep</div><div class="v">1.3×</div><div class="d">faster on a single 380 MB file (~42 vs ~57 ms); parity on many files</div></div>
     <div class="stat"><div class="k">Tests</div><div class="v">123</div><div class="d">+ adversarial review on every feature; ASan-clean</div></div>
   </div>
 
@@ -218,24 +218,24 @@
 
   <div class="chart">
     <div class="title">Count matches in one 380 MB file — lower is faster</div>
-    <div class="sub">99,197 matching lines. Warm cache, median of 15 runs.</div>
-    <div class="bar-row win"><span class="name">tarn find -c</span><span class="bar-track"><span class="bar-fill" style="width:55%;background:var(--copper)"></span></span><span class="val">38 ms</span></div>
-    <div class="bar-row"><span class="name">ripgrep -c</span><span class="bar-track"><span class="bar-fill" style="width:80%;background:#b9b1a4"></span></span><span class="val">55 ms</span></div>
-    <div class="legend">tarn is ~1.45× faster than ripgrep — and ~46× faster than the system grep (ugrep 7.5: <b>1758 ms</b>, off this chart).</div>
+    <div class="sub">30,720 matching lines. Warm cache, median of 15 runs (figures bounce ±~15% run to run).</div>
+    <div class="bar-row win"><span class="name">tarn find -c</span><span class="bar-track"><span class="bar-fill" style="width:55%;background:var(--copper)"></span></span><span class="val">~42 ms</span></div>
+    <div class="bar-row"><span class="name">ripgrep -c</span><span class="bar-track"><span class="bar-fill" style="width:80%;background:#b9b1a4"></span></span><span class="val">~57 ms</span></div>
+    <div class="legend">tarn is ~1.3× faster than ripgrep here — and ~45× faster than the system grep (ugrep 7.5: ≈ <b>2.2 s</b>, off this chart).</div>
   </div>
 
   <div class="chart">
     <div class="title">Count matches across 3,000 files (~380 MB) — lower is faster</div>
-    <div class="sub">The recursive case. Warm cache, median of 21 runs.</div>
-    <div class="bar-row"><span class="name">tarn find -c</span><span class="bar-track"><span class="bar-fill" style="width:51%;background:var(--copper)"></span></span><span class="val">41 ms</span></div>
-    <div class="bar-row"><span class="name">ripgrep -c</span><span class="bar-track"><span class="bar-fill" style="width:50%;background:#b9b1a4"></span></span><span class="val">40 ms</span></div>
-    <div class="legend">Parity, within noise (~1.03×). Both fan files out across cores; ripgrep's per-file machinery still edges it.</div>
+    <div class="sub">The recursive case. Warm cache, median of 15 runs.</div>
+    <div class="bar-row"><span class="name">tarn find -c</span><span class="bar-track"><span class="bar-fill" style="width:80%;background:var(--copper)"></span></span><span class="val">~52 ms</span></div>
+    <div class="bar-row"><span class="name">ripgrep -c</span><span class="bar-track"><span class="bar-fill" style="width:74%;background:#b9b1a4"></span></span><span class="val">~48 ms</span></div>
+    <div class="legend">Parity — ripgrep edges it ~1.1×. Both fan files out across cores; ripgrep's tuned per-file machinery still leads slightly.</div>
   </div>
 
   <div class="callout">
     <span class="e">The honest ceiling</span>
     <h3>You can't count faster than you can read.</h3>
-    <p>tarn counts a 380 MB file in ~38 ms; merely <code>cat</code>-ing it takes ~35 ms. tarn is at the
+    <p>tarn counts a 380 MB file in ~42 ms; merely <code>cat</code>-ing it takes ~36 ms. tarn is at the
     memory-bandwidth wall — it counts in about the time it takes to read the bytes at all. So
     "10× faster" on a single scan isn't an optimization, it's physics. (The 10× hides elsewhere —
     see section 05.)</p>
@@ -268,8 +268,8 @@
     <div class="bar-row"><span class="name">one searcher</span><span class="bar-track"><span class="bar-fill" style="width:36%;background:var(--copper-lt)"></span></span><span class="val">204 ms</span></div>
     <div class="bar-row"><span class="name">+ threads</span><span class="bar-track"><span class="bar-fill" style="width:19%;background:var(--copper)"></span></span><span class="val">107 ms</span></div>
     <div class="bar-row"><span class="name">+ mmap</span><span class="bar-track"><span class="bar-fill" style="width:8%;background:var(--copper)"></span></span><span class="val">45 ms</span></div>
-    <div class="bar-row win"><span class="name">+ NEON SIMD</span><span class="bar-track"><span class="bar-fill" style="width:6.7%;background:var(--copper-dk)"></span></span><span class="val">38 ms</span></div>
-    <div class="legend">563 → 38 ms: a 14.8× speedup, entirely within the standard library.</div>
+    <div class="bar-row win"><span class="name">+ NEON SIMD</span><span class="bar-track"><span class="bar-fill" style="width:6.7%;background:var(--copper-dk)"></span></span><span class="val">~40 ms</span></div>
+    <div class="legend">563 → ~40 ms: a ~14× speedup, entirely within the standard library.</div>
   </div>
 
   <div class="callout">
