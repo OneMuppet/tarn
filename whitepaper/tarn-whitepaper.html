@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tarn — Engineering Field Notes</title>
+<style>
+  :root{
+    --paper:#faf8f3; --ink:#16130f; --muted:#6b645c; --faint:#9b938a;
+    --copper:#c7752e; --copper-dk:#a05a1f; --copper-lt:#e0a35a;
+    --mint:#3f9f7f; --rust:#cd6e5a; --dark:#0a0f14; --rule:#e6e0d6;
+    --serif:Georgia,'Iowan Old Style','Times New Roman',serif;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  @page{ size:820px 1180px; margin:0; }
+  body{margin:0;background:#cdc8bf;color:var(--ink);font-family:var(--serif);line-height:1.5;}
+  .page{
+    width:820px;height:1180px;margin:24px auto;background:var(--paper);
+    padding:64px 70px;position:relative;box-shadow:0 2px 18px rgba(0,0,0,.18);
+    overflow:hidden;break-after:page;
+  }
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);}
+  .eyebrow.copper{color:var(--copper);}
+  .badge{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--copper);border:1px solid var(--copper);border-radius:5px;padding:6px 12px;}
+  .topbar{display:flex;justify-content:space-between;align-items:center;}
+  h1{font-family:var(--serif);font-weight:700;font-size:64px;line-height:1.04;letter-spacing:-.5px;margin:48px 0 0;}
+  h1 .dot{color:var(--copper);}
+  h2{font-family:var(--serif);font-weight:700;font-size:34px;line-height:1.12;margin:0 0 0;letter-spacing:-.3px;}
+  .deck{font-family:var(--serif);font-size:27px;line-height:1.3;font-weight:700;margin:34px 0 6px;}
+  .deck .it{font-style:italic;color:var(--copper);font-weight:400;}
+  .deck .it2{font-style:italic;color:var(--mint);font-weight:400;}
+  p.lede{font-size:15px;color:#3b352e;max-width:46em;}
+  .muted{color:var(--muted);}
+  .rule{border:0;border-top:2px solid var(--ink);margin:26px 0;}
+  .rule.thin{border-top:1px solid var(--rule);}
+
+  /* stat blocks */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:22px;margin-top:14px;}
+  .stat .k{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);}
+  .stat .v{font-family:var(--serif);font-size:42px;font-weight:700;line-height:1;margin:6px 0 7px;}
+  .stat .d{font-size:12px;color:var(--muted);line-height:1.35;}
+
+  /* section header */
+  .sec{display:grid;grid-template-columns:150px 1fr;gap:8px;align-items:start;}
+  .sec .num{font-family:var(--serif);font-size:118px;font-weight:700;line-height:.8;color:#d9cebb;}
+  .sec .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-top:10px;}
+  .sec .intro{color:var(--muted);font-size:15px;max-width:40em;margin-top:14px;}
+
+  /* cards */
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:8px;}
+  .card{border:1px solid var(--rule);box-shadow:3px 3px 0 var(--ink);padding:20px;background:#fffdf9;}
+  .card .e{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);}
+  .card .big{font-family:var(--serif);font-size:34px;font-weight:700;color:var(--copper);line-height:1;margin:10px 0 8px;}
+  .card .h{font-weight:700;font-size:15px;margin:8px 0 6px;}
+  .card .b{font-size:13px;color:#4a443c;line-height:1.4;}
+  .card.two{grid-template-columns:1fr;}
+
+  /* dark callout */
+  .callout{background:var(--dark);color:#e9e4da;padding:24px 26px;border-left:5px solid var(--copper);margin:26px 0;box-shadow:6px 6px 0 rgba(199,117,46,.22);}
+  .callout .e{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--copper-lt);}
+  .callout h3{font-family:var(--serif);font-size:23px;font-weight:700;margin:8px 0 10px;color:#fff;}
+  .callout p{font-size:14px;color:#cfc8bd;margin:0;max-width:54em;}
+  .callout code{font-family:var(--mono);color:var(--mint);font-size:13px;}
+
+  /* footer */
+  .foot{position:absolute;left:70px;right:70px;bottom:34px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:#a89f93;display:flex;justify-content:space-between;border-top:1px solid var(--rule);padding-top:12px;text-transform:uppercase;}
+  .foot .c{color:var(--copper);}
+
+  /* contents */
+  .toc{margin-top:18px;}
+  .toc .row{display:grid;grid-template-columns:48px 1fr auto;gap:14px;align-items:baseline;padding:11px 0;border-bottom:1px dotted var(--rule);}
+  .toc .n{font-family:var(--mono);font-weight:700;color:var(--copper);}
+  .toc .t{font-family:var(--serif);font-size:21px;font-weight:700;}
+  .toc .p{font-family:var(--mono);font-size:12px;color:var(--muted);}
+
+  /* charts */
+  .chart{margin:22px 0;background:#fffdf9;border:1px solid var(--rule);padding:22px 24px;}
+  .chart .title{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:4px;}
+  .chart .sub{font-size:13px;color:#4a443c;margin-bottom:14px;}
+  .bar-row{display:grid;grid-template-columns:120px 1fr 84px;gap:12px;align-items:center;margin:9px 0;font-size:13px;}
+  .bar-row .name{font-family:var(--mono);font-size:12px;color:var(--ink);text-align:right;}
+  .bar-track{background:#efe9df;height:26px;border-radius:3px;overflow:hidden;}
+  .bar-fill{height:100%;border-radius:3px;}
+  .bar-row .val{font-family:var(--mono);font-size:12px;color:var(--muted);}
+  .bar-row.win .name{font-weight:700;color:var(--copper-dk);}
+  .legend{font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:10px;}
+  .mascot{image-rendering:pixelated;border-radius:8px;}
+  .kbd{font-family:var(--mono);font-size:12px;background:#efe9df;border:1px solid var(--rule);border-radius:4px;padding:1px 6px;}
+  .twocol{column-count:2;column-gap:34px;font-size:13.5px;color:#3b352e;}
+  .twocol p{margin:0 0 12px;break-inside:avoid;}
+  @media print{ body{background:#fff} .page{box-shadow:none;margin:0} }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<section class="page">
+  <div class="topbar">
+    <span class="eyebrow">Engineering Field Notes · 2026 · v0.1</span>
+    <span class="badge">By an agent, for agents</span>
+  </div>
+
+  <h1>The editor your agent<br>wishes it had<span class="dot">.</span></h1>
+
+  <div class="deck">A grep-fast, zero-dependency CLI<br>
+    <span class="it">built by an AI agent</span><br>
+    <span class="it2">for the way agents actually read & edit code.</span>
+  </div>
+
+  <p class="lede">tarn is a tiny terminal editor and a structural command-line toolkit
+  for AI coding agents: orient in a repo, jump to a symbol's definition or its uses,
+  read one function, and edit by unit-of-meaning — all deterministic, <code style="font-family:var(--mono);font-size:13px">--json</code>-chainable,
+  with meaningful exit codes. Pure Rust, <b>no crate dependencies</b>. And on
+  large-file counting it is at parity with — or faster than — ripgrep, the fastest
+  search tool there is. Every number in this paper was measured, not estimated.</p>
+
+  <div style="position:absolute;right:60px;top:300px;text-align:center">
+    <img class="mascot" src="../assets/mascot.svg" width="150" alt="Cu, the tarn mascot">
+    <div class="eyebrow" style="margin-top:8px">Cu · the cursor, alive</div>
+  </div>
+
+  <hr class="rule" style="margin-top:120px">
+  <div class="stats">
+    <div class="stat"><div class="k">Dependencies</div><div class="v">0</div><div class="d">pure Rust std; mmap, threads & SIMD via core/libc — no crates</div></div>
+    <div class="stat"><div class="k">Commands</div><div class="v">24</div><div class="d">navigate · read · edit · config · verify</div></div>
+    <div class="stat"><div class="k">vs ripgrep (380 MB)</div><div class="v">0.69×</div><div class="d">~38 ms vs ~55 ms counting a single large file</div></div>
+    <div class="stat"><div class="k">Tests</div><div class="v">123</div><div class="d">+ adversarial review on every feature; ASan-clean</div></div>
+  </div>
+
+  <div class="eyebrow copper" style="margin-top:40px">A field guide to a search-and-edit tool that earns an agent's trust</div>
+  <p class="lede muted" style="font-size:13px;margin-top:8px">Benchmarks: 10-core Apple Silicon, warm cache, median of 15–21 runs, counting
+  the 99,197 lines containing <code style="font-family:var(--mono);font-size:12px">function</code> in a ~380 MB corpus of real source. Reproduce with
+  <code style="font-family:var(--mono);font-size:12px">tarn find -c</code> vs <code style="font-family:var(--mono);font-size:12px">rg -c</code> on any large file.</p>
+
+  <div class="foot"><span>tarn · the editor your agent wishes it had</span><span class="c">github.com/OneMuppet/tarn · 1 / 7</span></div>
+</section>
+
+<!-- ============ CONTENTS ============ -->
+<section class="page">
+  <span class="eyebrow">Contents</span>
+  <h2 style="margin-top:8px;font-size:40px">What's inside</h2>
+  <div class="toc">
+    <div class="row"><span class="n">01</span><span class="t">Why agents fight their tools.</span><span class="p">3</span></div>
+    <div class="row"><span class="n">02</span><span class="t">The surface: one binary, 24 commands.</span><span class="p">3</span></div>
+    <div class="row"><span class="n">03</span><span class="t">Speed: at parity with ripgrep, zero deps.</span><span class="p">4</span></div>
+    <div class="row"><span class="n">04</span><span class="t">How — mmap, all cores, SIMD, no crates.</span><span class="p">5</span></div>
+    <div class="row"><span class="n">05</span><span class="t">An honest negative result: the index.</span><span class="p">6</span></div>
+    <div class="row"><span class="n">06</span><span class="t">Trust is the product.</span><span class="p">7</span></div>
+  </div>
+  <div class="callout" style="margin-top:40px">
+    <span class="e">How to read this</span>
+    <h3>Every claim is cashable.</h3>
+    <p>The performance figures are medians of real runs on a real corpus against real
+    tools (ripgrep 14, ugrep 7.5). Where a thing didn't work, it's in here too —
+    section 05 is a feature we built, measured, and deleted. The tool is on GitHub;
+    <code>tarn help --json</code> emits its whole surface for an agent to learn in one call.</p>
+  </div>
+  <div class="foot"><span>tarn · the editor your agent wishes it had</span><span class="c">github.com/OneMuppet/tarn · 2 / 7</span></div>
+</section>
+
+<!-- ============ 01 + 02 ============ -->
+<section class="page">
+  <div class="sec">
+    <div><div class="num">01</div><div class="lbl">The problem</div></div>
+    <div>
+      <h2>Why agents fight their tools.</h2>
+      <div class="intro">A coding agent drives tools built for humans: open a file, scroll,
+      count lines, hope the line numbers didn't move since the last read. The friction is
+      real and it compounds across a session.</div>
+    </div>
+  </div>
+  <hr class="rule">
+  <div class="cards">
+    <div class="card"><div class="e">Context burned</div><div class="big">whole files</div><div class="b">read into the prompt just to find one symbol. grep gives lines without structure; cat gives everything without shape.</div></div>
+    <div class="card"><div class="e">Line drift</div><div class="big">off-by-N</div><div class="b">an edit keyed to a line number that moved between read and write clobbers the wrong line. No guard, no recovery.</div></div>
+    <div class="card"><div class="e">No machine surface</div><div class="big">prose</div><div class="b">human tools answer in prose an agent must re-parse. No stable JSON, no exit-code contract to branch on.</div></div>
+  </div>
+
+  <div class="sec" style="margin-top:46px">
+    <div><div class="num">02</div><div class="lbl">The surface</div></div>
+    <div>
+      <h2>One binary, 24 commands.</h2>
+      <div class="intro">Structural, surgical, and self-describing. <code>tarn help --json</code>
+      returns the whole manifest — every command, usage, example, and exit code — so an
+      agent learns the tool in a single call.</div>
+    </div>
+  </div>
+  <hr class="rule">
+  <div class="cards">
+    <div class="card"><div class="e">Navigate (no LSP)</div><div class="h">tree · outline · defs · refs · peek · find</div><div class="b">Go-to-definition, find-references, repo map, and grep that hands you the enclosing definition of every hit — from heuristics, no language server.</div></div>
+    <div class="card"><div class="e">Edit by meaning</div><div class="h">replace · insert · delete · apply · patch · rename</div><div class="b"><code>--def &lt;name&gt;</code> edits a whole function. <code>--expect</code> refuses if the target moved. <code>git diff | tarn patch</code> applies a unified diff, relocating drifted hunks.</div></div>
+    <div class="card"><div class="e">Config & verify</div><div class="h">json · toml · yaml · check · diff</div><div class="b">Get/set/delete by path, format-preserving (comments & key order kept). Hygiene gate and a fast line-numbered diff. Exit codes: 0/1/2/3.</div></div>
+  </div>
+  <div class="callout">
+    <span class="e">The contract</span>
+    <h3>Deterministic, guarded, chainable.</h3>
+    <p>Every edit preserves line endings and never reflows untouched lines; <code>--dry-run</code>
+    previews; multi-file <code>apply</code>/<code>patch</code> are atomic with rollback; <code>--json</code> on read &amp; edit
+    commands lets one command feed the next. An agent can act without a defensive re-read.</p>
+  </div>
+  <div class="foot"><span>tarn · zero dependencies · 123 tests</span><span class="c">github.com/OneMuppet/tarn · 3 / 7</span></div>
+</section>
+
+<!-- ============ 03 SPEED ============ -->
+<section class="page">
+  <div class="sec">
+    <div><div class="num">03</div><div class="lbl">The speed</div></div>
+    <div>
+      <h2>At parity with ripgrep.<br>Zero dependencies.</h2>
+      <div class="intro">ripgrep is the fastest search tool in wide use — SIMD, mmap, a tuned
+      parallel walk. tarn matches it on a directory and <i>beats</i> it on a single large file,
+      with not one crate dependency.</div>
+    </div>
+  </div>
+  <hr class="rule">
+
+  <div class="chart">
+    <div class="title">Count matches in one 380 MB file — lower is faster</div>
+    <div class="sub">99,197 matching lines. Warm cache, median of 15 runs.</div>
+    <div class="bar-row win"><span class="name">tarn find -c</span><span class="bar-track"><span class="bar-fill" style="width:55%;background:var(--copper)"></span></span><span class="val">38 ms</span></div>
+    <div class="bar-row"><span class="name">ripgrep -c</span><span class="bar-track"><span class="bar-fill" style="width:80%;background:#b9b1a4"></span></span><span class="val">55 ms</span></div>
+    <div class="legend">tarn is ~1.45× faster than ripgrep — and ~46× faster than the system grep (ugrep 7.5: <b>1758 ms</b>, off this chart).</div>
+  </div>
+
+  <div class="chart">
+    <div class="title">Count matches across 3,000 files (~380 MB) — lower is faster</div>
+    <div class="sub">The recursive case. Warm cache, median of 21 runs.</div>
+    <div class="bar-row"><span class="name">tarn find -c</span><span class="bar-track"><span class="bar-fill" style="width:51%;background:var(--copper)"></span></span><span class="val">41 ms</span></div>
+    <div class="bar-row"><span class="name">ripgrep -c</span><span class="bar-track"><span class="bar-fill" style="width:50%;background:#b9b1a4"></span></span><span class="val">40 ms</span></div>
+    <div class="legend">Parity, within noise (~1.03×). Both fan files out across cores; ripgrep's per-file machinery still edges it.</div>
+  </div>
+
+  <div class="callout">
+    <span class="e">The honest ceiling</span>
+    <h3>You can't count faster than you can read.</h3>
+    <p>tarn counts a 380 MB file in ~38 ms; merely <code>cat</code>-ing it takes ~35 ms. tarn is at the
+    memory-bandwidth wall — it counts in about the time it takes to read the bytes at all. So
+    "10× faster" on a single scan isn't an optimization, it's physics. (The 10× hides elsewhere —
+    see section 05.)</p>
+  </div>
+  <div class="foot"><span>tarn · benchmarks: Apple Silicon, ripgrep 14.1, ugrep 7.5</span><span class="c">github.com/OneMuppet/tarn · 4 / 7</span></div>
+</section>
+
+<!-- ============ 04 HOW ============ -->
+<section class="page">
+  <div class="sec">
+    <div><div class="num">04</div><div class="lbl">The how</div></div>
+    <div>
+      <h2>Fast with no crates.</h2>
+      <div class="intro">ripgrep's raw byte-scan beats anything you'd hand-write in std. tarn wins
+      the difference back three other ways — all standard library, no dependencies.</div>
+    </div>
+  </div>
+  <hr class="rule">
+  <div class="cards">
+    <div class="card"><div class="e">No copy</div><div class="h">mmap (libc FFI)</div><div class="b">Map the file and scan straight from the page cache — no <code>fs::read</code> copy of hundreds of MB. Same FFI tarn already uses for <code>stty</code>.</div></div>
+    <div class="card"><div class="e">All cores</div><div class="h">std::thread</div><div class="b">ripgrep searches one file on one thread; tarn splits it. <code>\n</code> is always a UTF-8 boundary, so each chunk counts independently and the sum is exact.</div></div>
+    <div class="card"><div class="e">SIMD, std</div><div class="h">NEON via core::arch</div><div class="b">A 16-byte-at-a-time <code>memchr</code> in NEON intrinsics — which live in <code>core::arch</code>, the standard library, not a crate. AddressSanitizer-clean.</div></div>
+  </div>
+
+  <div class="chart">
+    <div class="title">The journey — tarn find -c on the same 380 MB file</div>
+    <div class="sub">Each step is a std-only change. Lower is faster.</div>
+    <div class="bar-row"><span class="name">baseline</span><span class="bar-track"><span class="bar-fill" style="width:100%;background:#d8d0c4"></span></span><span class="val">563 ms</span></div>
+    <div class="bar-row"><span class="name">Two-Way + lazy</span><span class="bar-track"><span class="bar-fill" style="width:61%;background:#cdbfa8"></span></span><span class="val">346 ms</span></div>
+    <div class="bar-row"><span class="name">one searcher</span><span class="bar-track"><span class="bar-fill" style="width:36%;background:var(--copper-lt)"></span></span><span class="val">204 ms</span></div>
+    <div class="bar-row"><span class="name">+ threads</span><span class="bar-track"><span class="bar-fill" style="width:19%;background:var(--copper)"></span></span><span class="val">107 ms</span></div>
+    <div class="bar-row"><span class="name">+ mmap</span><span class="bar-track"><span class="bar-fill" style="width:8%;background:var(--copper)"></span></span><span class="val">45 ms</span></div>
+    <div class="bar-row win"><span class="name">+ NEON SIMD</span><span class="bar-track"><span class="bar-fill" style="width:6.7%;background:var(--copper-dk)"></span></span><span class="val">38 ms</span></div>
+    <div class="legend">563 → 38 ms: a 14.8× speedup, entirely within the standard library.</div>
+  </div>
+
+  <div class="callout">
+    <span class="e">Bonus: the diff renderer</span>
+    <h3>~7 s → ~26 ms on a 40k-line file.</h3>
+    <p>A full-matrix LCS was a latent O(n·m) memory bomb. Trimming the common prefix/suffix and
+    running the quadratic part only on the differing middle made a one-line change in a 40,000-line
+    file diff in ~26 ms instead of ~7 s — backing every <code>--diff</code> flag.</p>
+  </div>
+  <div class="foot"><span>tarn · pure Rust std · mmap · threads · NEON</span><span class="c">github.com/OneMuppet/tarn · 5 / 7</span></div>
+</section>
+
+<!-- ============ 05 NEGATIVE RESULT ============ -->
+<section class="page">
+  <div class="sec">
+    <div><div class="num">05</div><div class="lbl">The cardinal rule</div></div>
+    <div>
+      <h2>Measure it. Then maybe delete it.</h2>
+      <div class="intro">A tool earns trust by what it refuses to ship. We built a persistent
+      navigation index to make repeated <code>defs</code>/<code>refs</code> sublinear — then measured it and pulled it.</div>
+    </div>
+  </div>
+  <hr class="rule">
+  <div class="cards">
+    <div class="card"><div class="e">The premise</div><div class="big">91%</div><div class="b">of a <code>defs</code> query on a 1,688-file repo is re-reading and re-parsing files that didn't change (~142 of ~156 ms). Cache that, the theory went, and queries go ~10×.</div></div>
+    <div class="card"><div class="e">The measurement</div><div class="big">1.4×</div><div class="b">what the built, correct, never-stale per-file cache actually delivered. Not 10×.</div></div>
+    <div class="card"><div class="e">The reason</div><div class="big">decode</div><div class="b">each <code>tarn</code> call is a fresh process that re-reads and re-deserializes the whole index. The floor is decode + stat, not the parse we cached.</div></div>
+  </div>
+  <div class="callout">
+    <span class="e">What shipped instead: nothing</span>
+    <h3>1.4× doesn't justify persistent state.</h3>
+    <p>A new on-disk format and a new failure surface, for 1.4×, on a tool whose whole appeal is
+    "just point it at files" — not worth it. The prototype was reverted; the analysis is recorded
+    in <code>docs/INDEX.md</code>. A real 10× would need a resident daemon or an mmap'd zero-decode index —
+    a much larger change, parked until the latency is actually felt. <b>The honest negative result is
+    part of the spec.</b></p>
+  </div>
+  <div class="foot"><span>tarn · what we didn't ship, and why</span><span class="c">github.com/OneMuppet/tarn · 6 / 7</span></div>
+</section>
+
+<!-- ============ 06 TRUST + CLOSE ============ -->
+<section class="page">
+  <div class="sec">
+    <div><div class="num">06</div><div class="lbl">The product</div></div>
+    <div>
+      <h2>Trust is the product.</h2>
+      <div class="intro">Speed gets a tool tried; trust gets it adopted. A search tool that returns
+      one wrong-but-plausible answer gets pulled from the harness forever.</div>
+    </div>
+  </div>
+  <hr class="rule">
+  <div class="twocol">
+    <p><b>Adversarial review on every feature.</b> A ruthless reviewer agent gated each change before it
+    shipped — and earned its keep: it caught a real <code>.env</code> data-loss bug (a non-UTF-8 byte made
+    <code>set</code> wipe the file), a CRLF counting seam, and exit-code contract violations, each fixed at the root.</p>
+    <p><b>Counts proven exact.</b> The SIMD scanner was differential-tested across 900+ cases against the
+    previous implementation and against <code>rg</code>/<code>grep</code> — zero mismatches — and a 3,000-input fuzz vs a naive
+    oracle. The unsafe NEON code is AddressSanitizer-clean.</p>
+    <p><b>Edits never corrupt.</b> Line endings (LF/CRLF) and final-newline state are preserved on every
+    edit; format-preserving config edits keep comments and key order; multi-file batches roll back as a unit.</p>
+    <p><b>123 tests, clippy &amp; fmt clean, CI green.</b> Every benchmark in this paper is reproducible from the
+    repo. Where a number depended on the test machine, it's labelled. Nothing here is aspirational.</p>
+  </div>
+
+  <div class="callout">
+    <span class="e">Definition of done</span>
+    <h3>The tool an agent would choose.</h3>
+    <p>Fast enough that you never reach for grep. Structural, so you jump to a symbol instead of
+    scrolling. Guarded, so an edit can't silently land in the wrong place. Self-describing, so any
+    agent learns it in one <code>tarn help --json</code>. And honest enough to delete the feature that
+    didn't earn its place. Built by an agent — for the tools it wished it had.</p>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:18px;margin-top:30px">
+    <img class="mascot" src="../assets/mascot.svg" width="76" alt="Cu">
+    <div>
+      <div style="font-family:var(--serif);font-size:22px;font-weight:700">tarn<span style="color:var(--copper)">.</span></div>
+      <div class="eyebrow" style="margin-top:4px">the editor your agent wishes it had · by an agent, for agents</div>
+    </div>
+  </div>
+
+  <div class="foot"><span>tarn · github.com/OneMuppet/tarn · cargo install tarn-cli</span><span class="c">7 / 7</span></div>
+</section>
+
+</body>
+</html>
