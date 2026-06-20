@@ -1758,6 +1758,19 @@ fn scan_count(path: &Path, pat: &str, parallel: bool) -> Option<usize> {
     count(&fs::read(path).ok()?)
 }
 
+/// Count one file for the directory fast path: read it (no `mmap`/stat — these
+/// are the many-small-files most of a tree is, where the map/unmap syscalls
+/// don't pay off), skip a binary (NUL in first 8 KiB) or non-UTF-8 file, and
+/// SIMD-count the matching lines. `None` = skipped, contributing nothing.
+fn count_file_read(path: &Path, pat: &str) -> Option<usize> {
+    let bytes = fs::read(path).ok()?;
+    if bytes.iter().take(8192).any(|&x| x == 0) {
+        return None;
+    }
+    std::str::from_utf8(&bytes).ok()?; // skip non-UTF-8 files, like the read path
+    Some(count_lines_bytes(&bytes, pat.as_bytes()))
+}
+
 /// Sum `find -c` across many files, fanning the files out over CPU cores with
 /// `std::thread` — the part of a recursive search ripgrep parallelizes and tarn
 /// previously did serially. Each worker counts its files serially (the count is
@@ -1777,7 +1790,7 @@ fn count_files_parallel(files: &[PathBuf], pat: &str) -> usize {
                 s.spawn(move || {
                     group
                         .iter()
-                        .filter_map(|f| scan_count(f, pat, false))
+                        .filter_map(|f| count_file_read(f, pat))
                         .sum::<usize>()
                 })
             })
@@ -2040,9 +2053,16 @@ fn walk(dir: &PathBuf, out: &mut Vec<PathBuf>) {
         Ok(e) => e,
         Err(_) => return,
     };
-    let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
-    paths.sort(); // deterministic output
-    for path in paths {
+    // Use the directory entry's own file type — the `d_type` from `readdir`,
+    // which costs no extra syscall on the common filesystems — instead of
+    // `symlink_metadata` + `is_dir`, which stat every entry TWICE and dominated
+    // the walk's cost on a big tree. Sort by path for deterministic output.
+    let mut items: Vec<(std::fs::FileType, PathBuf)> = entries
+        .flatten()
+        .filter_map(|e| e.file_type().ok().map(|ft| (ft, e.path())))
+        .collect();
+    items.sort_by(|a, b| a.1.cmp(&b.1));
+    for (ft, path) in items {
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -2050,18 +2070,13 @@ fn walk(dir: &PathBuf, out: &mut Vec<PathBuf>) {
         if name.starts_with('.') {
             continue; // .git, .venv, dotfiles
         }
-        // Don't follow symlinks — avoids loops and duplicate hits.
-        if fs::symlink_metadata(&path)
-            .map(|m| m.file_type().is_symlink())
-            .unwrap_or(false)
-        {
-            continue;
+        if ft.is_symlink() {
+            continue; // don't follow symlinks — avoids loops and duplicate hits
         }
-        if path.is_dir() {
-            if is_vendor_dir(&name) {
-                continue;
+        if ft.is_dir() {
+            if !is_vendor_dir(&name) {
+                walk(&path, out);
             }
-            walk(&path, out);
         } else {
             out.push(path);
         }

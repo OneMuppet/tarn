@@ -39,7 +39,7 @@ The current feature set, ahead of the first published release.
 - Line-ending (LF/CRLF) and trailing-newline state preserved on every edit.
 
 ### Performance (std-only: `core::arch` SIMD + `mmap` via libc FFI, zero crates)
-- `find -c` memory-maps the file (`mmap`, libc FFI), scans with NEON SIMD on aarch64 (`core::arch` intrinsics, scalar fallback elsewhere), and counts across all cores (`std::thread`). On a 10-core box it **beats ripgrep** counting a single ~380 MB file (~39 ms vs ~56 ms), trails it ~1.3× across many small files, and is far ahead of the system grep. All zero crate dependencies. `\n` is always a UTF-8 boundary, so chunks count independently and the sum is exact.
+- `find -c` memory-maps the file (`mmap`, libc FFI), scans with NEON SIMD on aarch64 (`core::arch` intrinsics, scalar fallback elsewhere), and counts across all cores (`std::thread`). On a 10-core box it **beats ripgrep** counting a single ~380 MB file (~39 ms vs ~56 ms), is at parity across many small files (the directory walk now reads each entry's type from readdir instead of stat-ing twice), and is far ahead of the system grep. All zero crate dependencies. `\n` is always a UTF-8 boundary, so chunks count independently and the sum is exact.
 - The structure parse behind `outline`/`defs`/`refs`/`peek` is allocation-free on the hot path (~6× faster than before).
 - The diff renderer trims the common prefix/suffix and runs LCS only on the differing middle — a one-line change in a 40k-line file went from ~7 s / ~6 GB to ~26 ms / ~7 MB.
 

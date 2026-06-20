@@ -18,7 +18,7 @@ focused help. Build with `cargo build --release`; binary at `target/release/tarn
 - **Search returns structure, not just lines.** `tarn find` gives `file:line` for
   every hit and, with `--enclosing`, the *definition that contains it* — and it's
   far faster than the system grep, and — counting (`-c`) a single large file —
-  beats ripgrep (≈1.3× behind it across many small files), via mmap + NEON SIMD
+  beats ripgrep (and is at parity across many small files), via mmap + NEON SIMD
   + counting across all cores (all `core::arch`/`std`, still zero crates; see
   the README's Performance section).
 - **Edits are surgical and guarded.** Line-addressed, never reflow untouched lines

@@ -3,7 +3,7 @@
 ![tarn](assets/banner.svg)
 
 [![CI](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml/badge.svg)](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml)
-&nbsp;zero dependencies&nbsp;·&nbsp;122 tests
+&nbsp;zero dependencies&nbsp;·&nbsp;123 tests
 
 </div>
 
@@ -42,7 +42,7 @@ dependencies.
 - **Fast on purpose — and still zero dependencies.** `tarn find -c` memory-maps
   the file, scans with NEON SIMD (`core::arch`, not a crate), and counts across
   every core (`std::thread`). On a 10-core box it **beats ripgrep counting a
-  single large file** (~39 ms vs ~56 ms on ~380 MB), trails it ~1.3× across many
+  single large file** (~38 ms vs ~55 ms on ~380 MB), is at parity across many
   small files, and is far ahead of the system grep. (Reproducible — see
   [Performance](#performance).)
 
@@ -146,8 +146,8 @@ tarn find   app.py -- '--flag' # use -- to search a pattern that starts with a d
 **Fast on purpose.** `find` matches without allocating per line, skips binaries,
 and parses each file's structure once (only when `--enclosing` needs it). For
 counting (`-c`) it memory-maps, scans with NEON SIMD, and counts across all
-cores — beating ripgrep on a single large file (~1.3× behind across many small
-files), and far ahead of the system grep (see [Performance](#performance)).
+cores — beating ripgrep on a single large file and at parity across many small
+files, and far ahead of the system grep (see [Performance](#performance)).
 And it hands you the enclosing definition, an outline, or a surgical edit, which
 a raw scanner won't.
 
@@ -464,18 +464,19 @@ dependencies**. Three ideas, all std-only:
   elsewhere.
 
 Measured on a 10-core Apple Silicon laptop, counting lines containing `function`,
-warm cache, median of 15 runs (min in parens):
+warm cache, median of 21 runs (min in parens):
 
 | workload | `tarn find -c` | `ripgrep -c` | `ugrep -c` (system grep) |
 | --- | --- | --- | --- |
-| one ~380 MB file | **~39 ms** (38) | ~56 ms (55) | ~1760 ms |
-| ~380 MB across 3,000 files | ~59 ms (56) | **~45 ms** (43) | — |
+| one ~380 MB file | **~38 ms** (35) | ~55 ms (54) | ~1760 ms |
+| ~380 MB across 3,000 files | ~41–44 ms | ~40–43 ms (parity) | — |
 
-On a **single large file** tarn now **beats ripgrep** (~39 ms vs ~56 ms) —
-mmap + NEON + all cores. Across **many small files** ripgrep still edges it
-(~1.3×): its per-file machinery and parallel walk are very tuned, and tarn's
-recursive walk is still sequential before the parallel count. Both are far ahead
-of the system grep. All zero-dependency. Reproduce it: build `--release` and
+On a **single large file** tarn **beats ripgrep** (~38 ms vs ~55 ms, ~1.45×) —
+mmap + NEON + all cores. Across **many small files** it's now at **parity**
+(~41 vs ~40 ms, within noise): the directory walk reads each entry's type from
+`readdir` instead of stat-ing it twice, and counts the files across cores. Both
+are far ahead of the system grep, and tarn does it with **zero dependencies**.
+Reproduce it: build `--release` and
 point `tarn find -c` and `rg -c` at the same target.
 
 The structure-aware path (`outline`/`defs`/`refs`/`peek`) is separately fast:
