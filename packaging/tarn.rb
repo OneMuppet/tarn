@@ -1,25 +1,45 @@
-# Homebrew formula for tarn — builds from source (zero crate deps, so this is
-# fast and always correct; no per-release binary sha juggling).
+# Homebrew formula for tarn.
 #
-# To ship it: create a tap repo `OneMuppet/homebrew-tap`, drop this file in as
-# `Formula/tarn.rb`, set the `url`/`sha256` for the tagged release, and users get
-# `brew install onemuppet/tap/tarn`. (Or point `url` at a release tarball.)
+# Installs a prebuilt binary on the platforms we ship (Apple Silicon macOS and
+# x86_64 Linux) — no Rust toolchain needed. Intel macOS has no prebuilt binary,
+# so it falls back to building from source (needs Rust, pulled in as a build dep).
 #
-# The crate is published as `tarn-cli` but the installed command is `tarn`.
+# To ship updates: bump `version`, update the three URLs + sha256 values, drop this
+# file into the tap repo `OneMuppet/homebrew-tap` as `Formula/tarn.rb`. Users get
+# `brew install onemuppet/tap/tarn`.
 class Tarn < Formula
   desc "Tiny terminal editor and structural CLI toolkit built for AI agents"
   homepage "https://github.com/OneMuppet/tarn"
-  # Update per release: the source tarball for the tag, and its sha256.
-  url "https://github.com/OneMuppet/tarn/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "66eb77f10269e3dc6750d7abc9d255f2ddccf6032566d0f3d1ece29011c2649c"
+  version "0.1.0"
   license "MIT"
   head "https://github.com/OneMuppet/tarn.git", branch: "main"
 
-  depends_on "rust" => :build
+  on_macos do
+    on_arm do
+      url "https://github.com/OneMuppet/tarn/releases/download/v0.1.0/tarn-v0.1.0-aarch64-apple-darwin.tar.gz"
+      sha256 "401e5595946e279da1314043308c4405ced8e630d2dba825334d82447ee5a3d3"
+    end
+    on_intel do
+      # No prebuilt Intel-mac binary — build from the tagged source.
+      url "https://github.com/OneMuppet/tarn/archive/refs/tags/v0.1.0.tar.gz"
+      sha256 "66eb77f10269e3dc6750d7abc9d255f2ddccf6032566d0f3d1ece29011c2649c"
+      depends_on "rust" => :build
+    end
+  end
+
+  on_linux do
+    url "https://github.com/OneMuppet/tarn/releases/download/v0.1.0/tarn-v0.1.0-x86_64-unknown-linux-gnu.tar.gz"
+    sha256 "9f29ca6b76cc261198baa33aa27926ba1a9f28380581e782c9ce32ce3140e2d3"
+  end
 
   def install
-    # [[bin]] name = "tarn", so this installs the `tarn` command.
-    system "cargo", "install", *std_cargo_args
+    # Source builds (Intel mac, `--HEAD`) have a Cargo.toml; binary tarballs are
+    # just the `tarn` executable. [[bin]] name = "tarn" keeps the command `tarn`.
+    if File.exist?("Cargo.toml")
+      system "cargo", "install", *std_cargo_args
+    else
+      bin.install "tarn"
+    end
   end
 
   test do
