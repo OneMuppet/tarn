@@ -108,7 +108,48 @@ is absent/unwritable/corrupt. Worst case is exactly today's behavior.
 
 ## Decision
 
-Phase-0 says the win is real (~10× on repeated nav, ~91% of query time is
-cacheable, never-stale). Recommendation: build **Phase 1** (structure cache)
-behind the accelerator-not-authority guarantee; defer trigrams. Gate: explicit
-go, because it's tarn's first persistent state.
+Phase-0 estimated ~10× from caching the read+parse. Recommendation was to build
+**Phase 1** (per-file structure cache) behind accelerator-not-authority.
+
+## Phase-1 prototype: BUILT, MEASURED, REVERTED
+
+A working per-file structure cache was implemented (central
+`~/.cache/tarn/<hash>.idx`, `(mtime,size)`-keyed, stat-verified, atomic writes,
+zero-config, `TARN_NO_INDEX` opt-out) and verified **correct** (cached output
+byte-identical to uncached) and **never-stale**.
+
+But measured on frost-oak (1,688 files), warm, it delivered only **~1.4×**, not
+~10×:
+
+| | time |
+| --- | --- |
+| `defs` no-index (read + parse all) | ~162 ms |
+| `defs` cached | ~113 ms |
+| `tree` (walk floor) | ~15 ms |
+
+**Why Phase-0 was wrong:** it assumed a cached query ≈ the walk (~15 ms). In
+reality the cached query still (a) walks, (b) `stat`s every file for the
+freshness check, and — the real cost — (c) **re-reads and re-deserializes the
+entire index into owned structures on every invocation** (each `tarn` call is a
+fresh process). Removing the per-file def clone changed nothing, confirming the
+floor is decode + stat, not parse. A per-file disk cache that's fully reloaded
+per process can't beat ~the decode cost.
+
+**Verdict:** ~1.4× does not justify persistent state, an on-disk format, and a
+new failure surface. Reverted. The simple disk cache is the wrong shape.
+
+## What a real 10× would actually require
+
+The decode-per-process floor is the wall. Beating it needs one of:
+
+1. **A resident daemon** holding the index in memory, queried over a socket — no
+   per-call decode. Real 10×+, but it makes tarn a long-running service with
+   lifecycle/IPC, a large departure from "just a CLI."
+2. **An mmap'd, zero-decode index** — a structured file (sorted symbol table +
+   offsets) queried in place by binary search / hashing, materializing only the
+   few entries a query touches, never deserializing the whole thing. Keeps the
+   single-binary model; significant implementation effort and unsafe-ish layout
+   work. This is the promising path if the index is revisited.
+
+Either is a much larger investment than "build the structure cache," and gated
+on whether repeated-nav latency is actually a felt problem in practice. Parked.
