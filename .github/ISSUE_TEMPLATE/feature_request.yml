@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest a new command, flag, or behavior.
+title: "[feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tell us the **task** you're trying to do, not just the flag you want —
+        tarn can often already do it a different way, and knowing the goal helps
+        us design the right thing. Remember tarn is **zero-dependency**: ideas
+        that need a new crate are a hard sell (but `std`-only ones are very welcome).
+  - type: textarea
+    id: problem
+    attributes:
+      label: The task / problem
+      description: What are you trying to accomplish? What's painful today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: A command, flag, or behavior. Sketch the usage if you can.
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / workarounds
+      description: How do you do this today (with tarn or other tools)?
+    validations:
+      required: false

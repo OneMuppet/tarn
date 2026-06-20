@@ -1,0 +1,57 @@
+name: Bug report
+description: Something tarn did wrong — a crash, a wrong result, a bad edit.
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The single most useful thing is a **minimal
+        reproduction** — the exact command and a tiny input. Please fill in
+        what you can.
+  - type: input
+    id: version
+    attributes:
+      label: tarn version
+      description: Output of `tarn --version`.
+      placeholder: "tarn 0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS + arch (e.g. macOS 15 arm64, Ubuntu 24.04 x86_64).
+      placeholder: "macOS 15 arm64"
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact `tarn` command you ran.
+      render: shell
+      placeholder: "tarn replace src/foo.rs 42 'new line' --expect 'old line'"
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Input
+      description: The file/snippet it ran against (smallest version that still reproduces).
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Include the output and the **exit code** (`echo $?`).
+    validations:
+      required: true
