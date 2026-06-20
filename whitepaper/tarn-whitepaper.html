@@ -124,9 +124,9 @@
   <hr class="rule" style="margin-top:120px">
   <div class="stats">
     <div class="stat"><div class="k">Dependencies</div><div class="v">0</div><div class="d">pure Rust std; mmap, threads & SIMD via core/libc — no crates</div></div>
-    <div class="stat"><div class="k">Commands</div><div class="v">24</div><div class="d">navigate · read · edit · config · verify</div></div>
+    <div class="stat"><div class="k">Commands</div><div class="v">25</div><div class="d">navigate · read · edit · config · verify</div></div>
     <div class="stat"><div class="k">vs ripgrep</div><div class="v">1.3×</div><div class="d">faster on a single 380 MB file (~42 vs ~57 ms); parity on many files</div></div>
-    <div class="stat"><div class="k">Tests</div><div class="v">123</div><div class="d">+ adversarial review on every feature; ASan-clean</div></div>
+    <div class="stat"><div class="k">Tests</div><div class="v">124</div><div class="d">+ adversarial review on every feature; ASan-clean</div></div>
   </div>
 
   <div class="eyebrow copper" style="margin-top:40px">A field guide to a search-and-edit tool that earns an agent's trust</div>
@@ -181,7 +181,7 @@
   <div class="sec" style="margin-top:46px">
     <div><div class="num">02</div><div class="lbl">The surface</div></div>
     <div>
-      <h2>One binary, 24 commands.</h2>
+      <h2>One binary, 25 commands.</h2>
       <div class="intro">Structural, surgical, and self-describing. <code>tarn help --json</code>
       returns the whole manifest — every command, usage, example, and exit code — so an
       agent learns the tool in a single call.</div>
@@ -190,7 +190,7 @@
   <hr class="rule">
   <div class="cards">
     <div class="card"><div class="e">Navigate (no LSP)</div><div class="h">tree · outline · defs · refs · peek · find</div><div class="b">Go-to-definition, find-references, repo map, and grep that hands you the enclosing definition of every hit — from heuristics, no language server.</div></div>
-    <div class="card"><div class="e">Edit by meaning</div><div class="h">replace · insert · delete · apply · patch · rename</div><div class="b"><code>--def &lt;name&gt;</code> edits a whole function. <code>--expect</code> refuses if the target moved. <code>git diff | tarn patch</code> applies a unified diff, relocating drifted hunks.</div></div>
+    <div class="card"><div class="e">Edit by meaning</div><div class="h">replace · insert · delete · apply · patch · batch · rename</div><div class="b"><code>--def &lt;name&gt;</code> edits a whole function. <code>--expect</code> refuses if the target moved. <code>git diff | tarn patch</code> applies a unified diff, relocating drifted hunks.</div></div>
     <div class="card"><div class="e">Config & verify</div><div class="h">json · toml · yaml · check · diff</div><div class="b">Get/set/delete by path, format-preserving (comments & key order kept). Hygiene gate and a fast line-numbered diff. Exit codes: 0/1/2/3.</div></div>
   </div>
   <div class="callout">
@@ -277,7 +277,7 @@
     <h3>~7 s → ~26 ms on a 40k-line file.</h3>
     <p>A full-matrix LCS was a latent O(n·m) memory bomb. Trimming the common prefix/suffix and
     running the quadratic part only on the differing middle made a one-line change in a 40,000-line
-    file diff in ~26 ms instead of ~7 s — backing every <code>--diff</code> flag.</p>
+    file diff in ~26 ms instead of ~7 s — backing every <code>--diff</code> flag. And <code>tarn batch</code> runs a whole command session in one process: ~10,500 edits/sec (~34× over per-call spawn), since an agent's edit loop is bottlenecked by OS process spawn, not by tarn.</p>
   </div>
   <div class="foot"><span>tarn · pure Rust std · mmap · threads · NEON</span><span class="c">github.com/OneMuppet/tarn · 5 / 7</span></div>
 </section>

@@ -3,7 +3,7 @@
 ![tarn](assets/banner.svg)
 
 [![CI](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml/badge.svg)](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml)
-&nbsp;zero dependencies&nbsp;·&nbsp;123 tests
+&nbsp;zero dependencies&nbsp;·&nbsp;124 tests
 
 </div>
 
@@ -41,9 +41,10 @@ dependencies.
   verify — everywhere else, with meaningful exit codes and `--json` output.
 - **Fast on purpose — and still zero dependencies.** `tarn find -c` memory-maps
   the file, scans with NEON SIMD (`core::arch`, not a crate), and counts across
-  every core (`std::thread`). On a 10-core box it **beats ripgrep counting a
-  single large file** (~38 ms vs ~55 ms on ~380 MB), is at parity across many
-  small files, and is far ahead of the system grep. (Reproducible — see
+  every core (`std::thread`). On a 10-core box it's ~1.3× **faster than ripgrep**
+  on a single ~380 MB file (~42 vs ~57 ms), at parity across many small files, and
+  ~45× the system grep. And `tarn batch` runs a whole session in one process —
+  ~10,500 edits/sec (~34× over per-call spawn). (Reproducible — see
   [Performance](#performance).)
 
 <div align="center">
@@ -465,30 +466,30 @@ dependencies**. Three ideas, all std-only:
   elsewhere.
 
 Measured on a 10-core Apple Silicon laptop, counting lines containing `function`,
-warm cache, median of 21 runs (min in parens):
+warm cache, median of 15 runs (figures bounce ±~15% run to run, so these are
+representative, not cherry-picked):
 
 | workload | `tarn find -c` | `ripgrep -c` | `ugrep -c` (system grep) |
 | --- | --- | --- | --- |
-| one ~380 MB file | **~38 ms** (35) | ~55 ms (54) | ~1760 ms |
-| ~380 MB across 3,000 files | ~41–44 ms | ~40–43 ms (parity) | — |
+| one ~380 MB file | **~42 ms** | ~57 ms | ~2.2 s |
+| ~380 MB across 3,000 files | ~52 ms | ~48 ms | ~2.3 s |
 
-On a **single large file** tarn **beats ripgrep** (~38 ms vs ~55 ms, ~1.45×) —
-mmap + NEON + all cores. Across **many small files** it's now at **parity**
-(~41 vs ~40 ms, within noise): the directory walk reads each entry's type from
-`readdir` instead of stat-ing it twice, and counts the files across cores. Both
-are far ahead of the system grep, and tarn does it with **zero dependencies**.
-Reproduce it: build `--release` and
+On a **single large file** tarn is ~1.3× **faster than ripgrep** (mmap + NEON +
+all cores). Across **many small files** it's at **parity** — ripgrep's tuned
+per-file walk edges it ~1.1×. Both are **~45× faster than the system grep**, with
+identical counts and **zero dependencies**. Reproduce it: build `--release` and
 point `tarn find -c` and `rg -c` at the same target.
 
-The structure-aware path (`outline`/`defs`/`refs`/`peek`) is separately fast:
-its parser is allocation-free on the hot line scan, and the diff renderer trims
-the common prefix/suffix so a one-line change in a 40k-line file diffs in ~26 ms
-instead of ~7 s.
+**Editing throughput.** An agent's edit-heavy session is bottlenecked by OS
+process spawn (~3.3 ms/call), not tarn — its edit work is ~0.1–0.2 ms. `tarn
+batch` runs a whole command stream in one process: **1000 edits in ~95 ms
+(~10,500 edits/sec), ~34× faster** than 1000 separate invocations.
 
-The structure pass behind `outline`/`defs`/`refs`/`peek` is allocation-free on
-the hot path (it does a byte-prefix keyword test per line, not a `format!` per
-keyword per line) — parsing that same 289 MB file drops from ~10 s to ~1.5 s, so
-`tarn refs <symbol>` over a large tree stays interactive.
+The structure pass behind `outline`/`defs`/`refs`/`peek` is separately fast:
+allocation-free on the hot line scan (a byte-prefix keyword test per line, not a
+`format!` per keyword per line) — parsing a 289 MB file dropped from ~10 s to
+~1.5 s. And the diff renderer trims the common prefix/suffix so a one-line change
+in a 40k-line file diffs in ~26 ms instead of ~7 s.
 
 ## Design notes
 
