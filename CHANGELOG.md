@@ -4,6 +4,13 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.2.0]
+
+### Diff output (emit, not just apply)
+- `tarn diff -u` / `--unified`, and `--diff -u` on edits (`replace`/`insert`/`delete`/`write`/`apply`) — emit a standard unified diff. CRLF- and no-final-newline-faithful; accepted by `git apply`, `patch`, and `tarn patch`.
+- `tarn patch` now honors `\ No newline at end of file`, so `tarn diff -u | tarn patch` round-trips byte-for-byte (incl. trailing-newline flips).
+- `tarn diff --stat` — change magnitude (`+ins -del`).
+
 ## [Unreleased]
 
 The current feature set, ahead of the first published release.
