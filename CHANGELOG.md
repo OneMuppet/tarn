@@ -17,11 +17,11 @@ The current feature set, ahead of the first published release.
 - `peek` — read one definition by name; `show` — windowed, line-numbered view for "opening" a file in chat.
 
 ### Edit (surgical, guarded, atomic)
-- `replace` / `insert` / `delete` — line-addressed edits; `--expect` guard, `--dry-run`, `--diff`, `--json`.
+- `replace` / `insert` / `delete` — line-addressed edits; `--expect` guard, `--dry-run`, `--diff` (add `-u`/`--unified` to emit an applyable patch), `--json`.
 - `replace --match` — content-addressed line replace (survives line drift).
 - `delete --def` / `replace --def` — structural: remove or swap a whole definition by name.
 - `apply` — atomic multi-file batch of ops, all-or-nothing with rollback.
-- `patch` — apply a unified diff (`git diff | tarn patch`); strict on content, relocates hunks whose line numbers have drifted to where their context uniquely matches; refuses ambiguous/absent context.
+- `patch` — apply a unified diff (`git diff | tarn patch`); strict on content, relocates hunks whose line numbers have drifted to where their context uniquely matches; refuses ambiguous/absent context. Honors `\ No newline at end of file`, so it round-trips `tarn diff -u` / `--diff -u` byte-faithfully.
 - `rename` — whole-word or substring rename across a file or directory; `--in <def>` scopes it.
 - `write` — replace a whole file from stdin.
 
@@ -31,7 +31,7 @@ The current feature set, ahead of the first published release.
 
 ### Verify
 - `check` — hygiene gate (trailing whitespace, mixed indentation, mixed line endings).
-- `diff` — compact, line-numbered diff between two files.
+- `diff` — compact, line-numbered diff between two files; `-u`/`--unified` emits a standard unified diff (CRLF- and no-final-newline-faithful) that `git apply`, `patch`, and `tarn patch` accept.
 
 ### Agent-native
 - `tarn help --json` — a single-call manifest of every command, its usage, examples, and exit codes.

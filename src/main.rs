@@ -981,6 +981,7 @@ fn yaml_set(args: &[String]) -> u8 {
 /// POSIX-ish exit: 0 identical, 1 differ, 2 trouble (unreadable).
 fn cmd_diff(args: &[String]) -> u8 {
     let color_pref = color_flag(args);
+    let unified = args.iter().any(|s| s == "-u" || s == "--unified");
     let pos: Vec<&str> = args
         .iter()
         .map(|s| s.as_str())
@@ -1000,10 +1001,17 @@ fn cmd_diff(args: &[String]) -> u8 {
     if ca == cb {
         return EXIT_OK; // identical
     }
-    print!(
-        "{}",
-        render::diff(&ca, &cb, color_pref.unwrap_or_else(use_color))
-    );
+    if unified {
+        print!(
+            "{}",
+            render::diff_unified(&ca, &cb, &format!("a/{a}"), &format!("b/{b}"))
+        );
+    } else {
+        print!(
+            "{}",
+            render::diff(&ca, &cb, color_pref.unwrap_or_else(use_color))
+        );
+    }
     let _ = io::stdout().flush();
     EXIT_NOT_FOUND // 1 = differences found (POSIX diff convention)
 }
@@ -2522,7 +2530,14 @@ fn write_and_report(op: &str, changes: &[(String, String, String)], flags: &Edit
                     }
                 );
             }
-            print!("{}", render::diff(old, new, flags.color));
+            if flags.unified {
+                print!(
+                    "{}",
+                    render::diff_unified(old, new, &format!("a/{path}"), &format!("b/{path}"))
+                );
+            } else {
+                print!("{}", render::diff(old, new, flags.color));
+            }
         }
     }
     let _ = io::stdout().flush();
@@ -2572,7 +2587,7 @@ fn cmd_patch(args: &[String]) -> u8 {
                 return EXIT_NOT_FOUND;
             }
         };
-        let body = match patch::apply(&old, fp.hunks()) {
+        let (body, final_nl) = match patch::apply(&old, fp.hunks()) {
             Ok(n) => n,
             Err(e) => {
                 // File drift (the file isn't what the diff expects) is a guard
@@ -2582,7 +2597,11 @@ fn cmd_patch(args: &[String]) -> u8 {
                 return code;
             }
         };
-        changes.push((fp.path.clone(), old.clone(), reframe_like(&old, body)));
+        changes.push((
+            fp.path.clone(),
+            old.clone(),
+            reframe_like(&old, body, final_nl),
+        ));
     }
     if changes.is_empty() {
         return usage_err("patch [--dry-run|--diff|--json]   (unified diff on stdin)");
@@ -2594,12 +2613,15 @@ fn cmd_patch(args: &[String]) -> u8 {
 /// (lines joined by `\n`, no trailing newline — what `patch::apply` returns), so
 /// patching preserves CRLF and final-newline exactly like every other edit. A
 /// newly created file (empty original) defaults to LF with a trailing newline.
-fn reframe_like(original: &str, lf_body: String) -> String {
+fn reframe_like(original: &str, lf_body: String, final_nl_override: Option<bool>) -> String {
     let crlf = original
         .find('\n')
         .map(|i| i > 0 && original.as_bytes()[i - 1] == b'\r')
         .unwrap_or(false);
-    let final_nl = original.is_empty() || original.ends_with('\n');
+    // The patch dictates the trailing newline when it reaches EOF; otherwise the
+    // untouched tail means we keep the original's state.
+    let final_nl =
+        final_nl_override.unwrap_or_else(|| original.is_empty() || original.ends_with('\n'));
     let ending = if crlf { "\r\n" } else { "\n" };
     let mut body = if crlf {
         lf_body.replace('\n', "\r\n")
@@ -2645,6 +2667,7 @@ fn split_num_text(rest: &str) -> Result<(usize, String), String> {
 /// Flags shared by every editing command.
 struct EditFlags {
     diff: bool,
+    unified: bool,
     json: bool,
     dry_run: bool,
     color: bool,
@@ -2721,7 +2744,14 @@ fn commit(file: &str, op: &str, flags: &EditFlags, old: &str, new: &str) -> u8 {
         );
     } else if flags.diff || flags.dry_run {
         // A dry-run with no explicit output still previews via diff.
-        print!("{}", render::diff(old, new, flags.color));
+        if flags.unified {
+            print!(
+                "{}",
+                render::diff_unified(old, new, &format!("a/{file}"), &format!("b/{file}"))
+            );
+        } else {
+            print!("{}", render::diff(old, new, flags.color));
+        }
     }
     let _ = io::stdout().flush();
     EXIT_OK
@@ -2757,6 +2787,7 @@ fn base_name(path: &str) -> String {
 /// precedence: `--plain` < `--color` < auto-detect (TTY + NO_COLOR).
 fn parse_edit_flags(args: &[String]) -> EditFlags {
     let (mut diff, mut json, mut dry_run, mut all) = (false, false, false, false);
+    let mut unified = false;
     let mut color_pref: Option<bool> = None;
     let mut expect: Option<String> = None;
     let mut match_anchor: Option<String> = None;
@@ -2775,6 +2806,7 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
             "--json" => json = true,
             "--dry-run" => dry_run = true,
             "--all" => all = true,
+            "-u" | "--unified" => unified = true,
             "--color" => color_pref = Some(true),
             "--plain" => color_pref = Some(false),
             "--expect" => {
@@ -2799,6 +2831,7 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
         dry_run,
         color: color_pref.unwrap_or_else(use_color),
         all,
+        unified,
         expect,
         match_anchor,
         def,

@@ -69,7 +69,7 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd {
         name: "replace",
         group: "edit",
-        usage: "tarn replace <file> <N> <text> [--expect T]  |  --match <anchor> <new-line> [--all]  |  --def <name> (new text on stdin)   [--diff|--json|--dry-run]",
+        usage: "tarn replace <file> <N> <text> [--expect T]  |  --match <anchor> <new-line> [--all]  |  --def <name> (new text on stdin)   [--diff [-u/--unified] | --json | --dry-run]",
         summary: "Replace line N (guard with --expect T). Or content-addressed: --match <anchor> replaces the whole line containing <anchor> (unique unless --all). Or structural: --def <name> swaps a whole definition for new text read from stdin.",
         examples: &[
             "tarn replace app.py 27 'PORT = 9090' --expect 'PORT = 8000'",
@@ -153,9 +153,9 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd {
         name: "diff",
         group: "verify",
-        usage: "tarn diff <a> <b> [--plain|--color]",
-        summary: "Show how file <a> differs from file <b> (line-numbered). Exit 0 identical, 1 differ, 2 trouble.",
-        examples: &["tarn diff expected.txt actual.txt"],
+        usage: "tarn diff <a> <b> [-u|--unified] [--plain|--color]",
+        summary: "Show how file <a> differs from file <b> (line-numbered). With -u/--unified, emit a standard unified diff (git/patch/tarn-patch applyable). Exit 0 identical, 1 differ, 2 trouble.",
+        examples: &["tarn diff expected.txt actual.txt", "tarn diff a.txt b.txt -u | tarn patch"],
     },
     Cmd {
         name: "check",

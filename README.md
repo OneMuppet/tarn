@@ -111,7 +111,7 @@ edit the one line — all deterministic and `--json`-chainable.
 | Read/set/del YAML config | `tarn yaml get\|set\|del <file> <path> [value]` |
 | `.env` key=value | `tarn get\|set\|unset\|keys <file> [KEY[=val]]` |
 | Hygiene gate | `tarn check <file>` |
-| Diff two files | `tarn diff <a> <b>` (0 same / 1 differ / 2 error) |
+| Diff two files | `tarn diff <a> <b> [-u]` (0 same / 1 differ / 2 error; `-u` = unified patch) |
 | Inspect / view | `tarn view <file> [--numbers]` |
 
 ### Exit codes (branch on these)
@@ -365,7 +365,8 @@ there were no occurrences. `--json` reports `{from,to,word,total,files:[…]}`.
 
 ```sh
 tarn check app.py     # exit 0 if clean, 1 if issues (--json for details)
-tarn diff  a.py b.py  # compare two files (exit 0 same / 1 differ / 2 error)
+tarn diff  a.py b.py       # compare two files (exit 0 same / 1 differ / 2 error)
+tarn diff  a.py b.py -u    # ...as a standard unified patch (git apply / tarn patch ready)
 ```
 
 `check` flags trailing whitespace, indentation that mixes tabs and spaces, mixed

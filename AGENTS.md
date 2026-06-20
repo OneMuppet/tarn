@@ -26,7 +26,7 @@ focused help. Build with `cargo build --release`; binary at `target/release/tarn
   so you don't clobber the wrong line after numbers drift, and you don't need a
   defensive re-read. Edit by semantic unit too: `delete --def` / `replace --def`
   remove or swap a whole definition by name.
-- **Apply your own diffs.** `git diff | tarn patch` applies a unified diff
+- **Emit *and* apply unified diffs.** `tarn diff <a> <b> -u` (or `--diff -u` on any edit, e.g. `tarn replace … --dry-run -u`) prints a standard unified patch that `git apply`/`patch`/`tarn patch` accept; `git diff | tarn patch` applies a unified diff
   directly — strict on content but tolerant of drifted line numbers (it relocates
   a hunk to where its context uniquely matches, refuses if ambiguous).
 - **Changes are previewable and atomic.** `--dry-run` previews; `apply` and `patch`
@@ -70,7 +70,7 @@ tarn check src/server.rs             # 7. verify you left no junk
 | Read/set/del TOML config | `tarn toml get\|set\|del <file> <path> [value]` |
 | Read/set/del YAML config | `tarn yaml get\|set\|del <file> <path> [value]` |
 | Hygiene gate | `tarn check <file>` |
-| Diff two files | `tarn diff <a> <b>` (0 same / 1 differ / 2 error) |
+| Diff two files | `tarn diff <a> <b> [-u]` (0 same / 1 differ / 2 error; `-u` emits a standard unified patch) |
 
 ## Conventions
 

@@ -25,6 +25,10 @@ enum Line {
 pub struct Hunk {
     old_start: usize,
     lines: Vec<Line>,
+    /// The new side's last line in this hunk is followed by a
+    /// `\ No newline at end of file` marker (so if this hunk reaches the new
+    /// file's end, the result has no trailing newline).
+    new_no_eol: bool,
 }
 
 /// All the hunks targeting one file, plus whether the diff creates it from
@@ -91,6 +95,7 @@ pub fn parse(diff: &str) -> Result<Vec<FilePatch>, String> {
                 .last_mut()
                 .ok_or_else(|| "hunk before any file header (`--- `/`+++ `)".to_string())?;
             let mut body = Vec::new();
+            let mut new_no_eol = false;
             i += 1;
             while i < lines.len() {
                 let l = lines[i];
@@ -103,8 +108,15 @@ pub fn parse(diff: &str) -> Result<Vec<FilePatch>, String> {
                     Some(b'+') => body.push(Line::Add(l[1..].to_string())),
                     // An empty line in a diff body means an empty context line.
                     None => body.push(Line::Context(String::new())),
-                    // `\ No newline at end of file` — a marker, not content.
-                    Some(b'\\') => {}
+                    // `\ No newline at end of file` — a marker, not content. It
+                    // refers to the preceding line; if that line is on the new
+                    // side (Add or shared Context), the new file ends without a
+                    // trailing newline.
+                    Some(b'\\') => {
+                        if matches!(body.last(), Some(Line::Add(_)) | Some(Line::Context(_))) {
+                            new_no_eol = true;
+                        }
+                    }
                     Some(_) => return Err(format!("unexpected patch line: {l:?}")),
                 }
                 i += 1;
@@ -112,6 +124,7 @@ pub fn parse(diff: &str) -> Result<Vec<FilePatch>, String> {
             cur.hunks.push(Hunk {
                 old_start,
                 lines: body,
+                new_no_eol,
             });
             continue;
         }
@@ -243,7 +256,11 @@ fn locate(
 /// ([`ApplyError::Drift`]); out-of-order hunks are [`ApplyError::Malformed`].
 /// Works on `\n`-split lines and rejoins with `\n`; the command layer re-applies
 /// the file's own ending.
-pub fn apply(content: &str, hunks: &[Hunk]) -> Result<String, ApplyError> {
+/// Apply `hunks` to `content`, returning the new body (lines joined by `\n`, no
+/// framing) and an optional trailing-newline decision: `Some(true/false)` when
+/// the patch reaches the new file's end and thus dictates its final-newline
+/// state, `None` when the end is untouched (caller preserves the original's).
+pub fn apply(content: &str, hunks: &[Hunk]) -> Result<(String, Option<bool>), ApplyError> {
     let orig: Vec<&str> = content.lines().collect();
     let mut out: Vec<String> = Vec::new();
     let mut cursor = 0usize; // next original line to copy (0-based)
@@ -270,11 +287,20 @@ pub fn apply(content: &str, hunks: &[Hunk]) -> Result<String, ApplyError> {
             }
         }
     }
+    // The patch determines the new file's trailing-newline state only when its
+    // last hunk runs to the original's end (no untouched tail follows); then the
+    // new EOF is that hunk's last new-side line, whose marker we recorded.
+    let reached_eof = cursor >= orig.len();
+    let final_nl_override = if reached_eof {
+        hunks.last().map(|h| !h.new_no_eol)
+    } else {
+        None
+    };
     // Copy whatever follows the last hunk.
     for l in &orig[cursor..] {
         out.push((*l).to_string());
     }
-    Ok(out.join("\n"))
+    Ok((out.join("\n"), final_nl_override))
 }
 
 /// Accessor for the command layer.
@@ -304,7 +330,7 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, "foo.txt");
         assert!(!files[0].create && !files[0].delete);
-        let out = apply("one\ntwo\nthree\n", files[0].hunks()).unwrap();
+        let (out, _) = apply("one\ntwo\nthree\n", files[0].hunks()).unwrap();
         assert_eq!(out, "one\nTWO\nthree");
     }
 
@@ -327,12 +353,12 @@ mod tests {
         let files = parse(add).unwrap();
         // old_start 2 means "after line 2"; with no context/remove lines it just
         // inserts before original line 2 (0-based 1)... here begin=1.
-        let out = apply("a\nb\nc\n", files[0].hunks()).unwrap();
+        let (out, _) = apply("a\nb\nc\n", files[0].hunks()).unwrap();
         assert!(out.contains("inserted"));
 
         let del = "--- a/f\n+++ b/f\n@@ -1,3 +1,2 @@\n a\n-b\n c\n";
         let files = parse(del).unwrap();
-        let out = apply("a\nb\nc\n", files[0].hunks()).unwrap();
+        let (out, _) = apply("a\nb\nc\n", files[0].hunks()).unwrap();
         assert_eq!(out, "a\nc");
     }
 
@@ -340,7 +366,7 @@ mod tests {
     fn multi_hunk_applies_in_order() {
         let d = "--- a/f\n+++ b/f\n@@ -1,1 +1,1 @@\n-a\n+A\n@@ -3,1 +3,1 @@\n-c\n+C\n";
         let files = parse(d).unwrap();
-        let out = apply("a\nb\nc\n", files[0].hunks()).unwrap();
+        let (out, _) = apply("a\nb\nc\n", files[0].hunks()).unwrap();
         assert_eq!(out, "A\nb\nC");
     }
 
@@ -349,7 +375,7 @@ mod tests {
         let create = "--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,2 @@\n+hello\n+world\n";
         let f = &parse(create).unwrap()[0];
         assert!(f.create && f.path == "new.txt");
-        let out = apply("", f.hunks()).unwrap();
+        let (out, _) = apply("", f.hunks()).unwrap();
         assert_eq!(out, "hello\nworld");
 
         let delete = "--- a/gone.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-bye\n";
@@ -391,7 +417,7 @@ mod tests {
         // context match, it still applies — at the right place.
         let d = "--- a/f\n+++ b/f\n@@ -1,1 +1,1 @@\n-TARGET\n+FIXED\n";
         let files = parse(d).unwrap();
-        let out = apply("h1\nh2\nTARGET\nh4\n", files[0].hunks()).unwrap();
+        let (out, _) = apply("h1\nh2\nTARGET\nh4\n", files[0].hunks()).unwrap();
         assert_eq!(out, "h1\nh2\nFIXED\nh4");
     }
 
@@ -414,8 +440,32 @@ mod tests {
         // there, so it applies at 1 without an ambiguity error.
         let d = "--- a/f\n+++ b/f\n@@ -1,1 +1,1 @@\n-a\n+A\n";
         let files = parse(d).unwrap();
-        let out = apply("a\nb\na\n", files[0].hunks()).unwrap();
+        let (out, _) = apply("a\nb\na\n", files[0].hunks()).unwrap();
         assert_eq!(out, "A\nb\na");
+    }
+
+    #[test]
+    fn apply_reports_new_trailing_newline_state() {
+        // Marker on the new side's last line → result has no trailing newline.
+        let d = "--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+B\n\\ No newline at end of file\n";
+        let f = parse(d).unwrap();
+        let (out, nl) = apply("a\nb", f[0].hunks()).unwrap();
+        assert_eq!(out, "a\nB");
+        assert_eq!(nl, Some(false));
+
+        // Appending a newline-terminated line → result gains a trailing newline.
+        let d2 =
+            "--- a/f\n+++ b/f\n@@ -1,2 +1,3 @@\n a\n-b\n\\ No newline at end of file\n+b\n+c\n";
+        let f2 = parse(d2).unwrap();
+        let (out2, nl2) = apply("a\nb", f2[0].hunks()).unwrap();
+        assert_eq!(out2, "a\nb\nc");
+        assert_eq!(nl2, Some(true));
+
+        // An untouched tail after the hunk → None (caller preserves original).
+        let d3 = "--- a/f\n+++ b/f\n@@ -1,3 +1,3 @@\n-x1\n+X1\n x2\n x3\n";
+        let f3 = parse(d3).unwrap();
+        let (_, nl3) = apply("x1\nx2\nx3\nx4\nx5", f3[0].hunks()).unwrap();
+        assert_eq!(nl3, None);
     }
 
     #[test]

@@ -285,6 +285,137 @@ pub fn diff(old: &str, new: &str, color: bool) -> String {
     out
 }
 
+/// Split into lines like [`str::lines`] but **preserving** a trailing `\r`, so a
+/// CRLF file's diff body matches the bytes on disk (and strict `git apply`
+/// accepts the patch instead of rejecting on a context mismatch).
+fn lines_keep_cr(s: &str) -> Vec<&str> {
+    if s.is_empty() {
+        return Vec::new();
+    }
+    let mut v: Vec<&str> = s.split('\n').collect();
+    if s.ends_with('\n') {
+        v.pop(); // drop the empty segment after the final newline
+    }
+    v
+}
+
+/// A standard **unified diff** (`--- a` / `+++ b` / `@@ -l,c +l,c @@`) of `old`
+/// -> `new`. Unlike [`diff`], this is machine format — no color, no line-number
+/// gutter — applyable by `git apply`, `patch(1)`, or `tarn patch`. CRLF endings
+/// are preserved, and a missing final newline emits the standard
+/// `\ No newline at end of file` marker, so even strict `git apply` accepts the
+/// output. `label_a` / `label_b` name the `---` / `+++` headers (callers pass
+/// `a/<path>` / `b/<path>`). Returns the empty string when there is no change.
+pub fn diff_unified(old: &str, new: &str, label_a: &str, label_b: &str) -> String {
+    // Attach a sentinel to a side's final line when that side lacks a trailing
+    // newline. This makes the LCS treat a no-newline last line as *distinct* from
+    // an otherwise-identical newline-terminated line — so when you delete or
+    // append at a no-newline EOF, the trailing line splits into `-`/`+` (exactly
+    // as git does) and the `\ No newline` marker rides the correct line, instead
+    // of being wrongly stamped on a shared context line.
+    const NONL: &str = "\u{0}\u{0}tarn:no-newline\u{0}\u{0}";
+    const NO_NL: &str = "\\ No newline at end of file\n";
+    let mut a_lines: Vec<String> = lines_keep_cr(old).iter().map(|s| s.to_string()).collect();
+    let mut b_lines: Vec<String> = lines_keep_cr(new).iter().map(|s| s.to_string()).collect();
+    if !old.is_empty() && !old.ends_with('\n') {
+        if let Some(l) = a_lines.last_mut() {
+            l.push_str(NONL);
+        }
+    }
+    if !new.is_empty() && !new.ends_with('\n') {
+        if let Some(l) = b_lines.last_mut() {
+            l.push_str(NONL);
+        }
+    }
+    let a: Vec<&str> = a_lines.iter().map(|s| s.as_str()).collect();
+    let b: Vec<&str> = b_lines.iter().map(|s| s.as_str()).collect();
+    let ops = align(&a, &b);
+
+    const CONTEXT: usize = 3;
+    let changed: Vec<bool> = ops.iter().map(|o| !matches!(o, Op::Eq(_))).collect();
+    if !changed.iter().any(|c| *c) {
+        return String::new();
+    }
+    // Keep an Eq op only if it's within CONTEXT of some change; gaps wider than
+    // 2·CONTEXT split into separate hunks, matching `diff -u`.
+    let keep: Vec<bool> = (0..ops.len())
+        .map(|idx| {
+            let lo = idx.saturating_sub(CONTEXT);
+            let hi = (idx + CONTEXT).min(ops.len() - 1);
+            (lo..=hi).any(|k| changed[k])
+        })
+        .collect();
+
+    // Emit one body line: strip the no-newline sentinel and, when it was present,
+    // append the `\ No newline` marker right after that line.
+    let push_line = |body: &mut String, prefix: char, text: &str| match text.strip_suffix(NONL) {
+        Some(stripped) => {
+            body.push(prefix);
+            body.push_str(stripped);
+            body.push('\n');
+            body.push_str(NO_NL);
+        }
+        None => {
+            body.push(prefix);
+            body.push_str(text);
+            body.push('\n');
+        }
+    };
+
+    let mut out = format!("--- {label_a}\n+++ {label_b}\n");
+    // `*_done` = lines consumed before the current op (so 1-based start = +1).
+    let (mut a_done, mut b_done) = (0usize, 0usize);
+    let mut idx = 0;
+    while idx < ops.len() {
+        if !keep[idx] {
+            match &ops[idx] {
+                Op::Eq(_) => {
+                    a_done += 1;
+                    b_done += 1;
+                }
+                Op::Del(_) => a_done += 1,
+                Op::Ins(_) => b_done += 1,
+            }
+            idx += 1;
+            continue;
+        }
+        let (a_before, b_before) = (a_done, b_done);
+        let (mut a_count, mut b_count) = (0usize, 0usize);
+        let mut body = String::new();
+        while idx < ops.len() && keep[idx] {
+            match &ops[idx] {
+                Op::Eq(t) => {
+                    push_line(&mut body, ' ', t);
+                    a_done += 1;
+                    b_done += 1;
+                    a_count += 1;
+                    b_count += 1;
+                }
+                Op::Del(t) => {
+                    push_line(&mut body, '-', t);
+                    a_done += 1;
+                    a_count += 1;
+                }
+                Op::Ins(t) => {
+                    push_line(&mut body, '+', t);
+                    b_done += 1;
+                    b_count += 1;
+                }
+            }
+            idx += 1;
+        }
+        // When a side contributes 0 lines (pure insert/delete), its start is the
+        // line *before* the hunk, per the unified-diff convention.
+        let a_start = if a_count == 0 { a_before } else { a_before + 1 };
+        let b_start = if b_count == 0 { b_before } else { b_before + 1 };
+        out.push_str(&format!(
+            "@@ -{a_start},{a_count} +{b_start},{b_count} @@\n"
+        ));
+        out.push_str(&body);
+    }
+    out
+}
+
 // --- JSON (hand-rolled; no serde, keeping the zero-dependency rule) ----------
 fn jesc(s: &str) -> String {
     let mut o = String::with_capacity(s.len() + 2);
@@ -1013,6 +1144,146 @@ mod tests {
     #[test]
     fn diff_no_change() {
         assert!(diff("a\n", "a\n", false).contains("no changes"));
+    }
+
+    #[test]
+    fn diff_unified_basic_shape() {
+        let d = diff_unified("a\nb\nc\n", "a\nB\nc\n", "a/f", "b/f");
+        assert!(d.starts_with("--- a/f\n+++ b/f\n"));
+        assert!(d.contains("@@ -1,3 +1,3 @@"));
+        assert!(d.lines().any(|l| l == "-b"));
+        assert!(d.lines().any(|l| l == "+B"));
+        assert!(d.lines().any(|l| l == " a")); // context, space-prefixed
+    }
+
+    #[test]
+    fn diff_unified_empty_when_identical() {
+        assert_eq!(diff_unified("x\ny\n", "x\ny\n", "a/f", "b/f"), "");
+    }
+
+    #[test]
+    fn diff_unified_pure_insertion_into_empty() {
+        // Inserting into an empty file: old side has 0 lines -> `-0,0`.
+        let d = diff_unified("", "new\n", "a/f", "b/f");
+        assert!(d.contains("@@ -0,0 +1,1 @@"), "got:\n{d}");
+        assert!(d.lines().any(|l| l == "+new"));
+    }
+
+    #[test]
+    fn diff_unified_no_trailing_newline_emits_marker() {
+        // Without the `\ No newline` marker, strict `git apply` rejects this.
+        let d = diff_unified("a\nb", "a\nB", "a/f", "b/f");
+        assert!(d.contains("\\ No newline at end of file"), "got:\n{d}");
+        assert!(d.lines().any(|l| l == "-b"));
+        assert!(d.lines().any(|l| l == "+B"));
+    }
+
+    #[test]
+    fn diff_unified_preserves_crlf() {
+        // CRLF must survive into the body so the context matches a CRLF file.
+        let d = diff_unified("a\r\nb\r\n", "a\r\nB\r\n", "a/f", "b/f");
+        assert!(d.contains(" a\r\n"), "got: {d:?}");
+        assert!(d.contains("-b\r\n"), "got: {d:?}");
+        assert!(d.contains("+B\r\n"), "got: {d:?}");
+    }
+
+    #[test]
+    fn diff_unified_delete_trailing_no_newline_line() {
+        // `a\nb\nc` (no final nl) -> `a\nb` (no final nl): the marker must NOT
+        // land on context ` b` (old's b HAS a newline); git rejects that. The
+        // trailing line splits: `-b -c\<nonl>` / `+b\<nonl>`.
+        let d = diff_unified("a\nb\nc", "a\nb", "a/f", "b/f");
+        let expected = "--- a/f\n+++ b/f\n@@ -1,3 +1,2 @@\n a\n-b\n-c\n\\ No newline at end of file\n+b\n\\ No newline at end of file\n";
+        assert_eq!(d, expected);
+        // never a marker directly after a context line
+        assert!(
+            !d.contains(" b\n\\ No newline"),
+            "marker on context line:\n{d}"
+        );
+    }
+
+    #[test]
+    fn diff_unified_append_to_no_newline_file() {
+        // `a\nb` (no final nl) -> `a\nb\nc\n`: old's b had no newline (marker on
+        // `-b`), new's b/c are newline-terminated (no marker).
+        let d = diff_unified("a\nb", "a\nb\nc\n", "a/f", "b/f");
+        let expected =
+            "--- a/f\n+++ b/f\n@@ -1,2 +1,3 @@\n a\n-b\n\\ No newline at end of file\n+b\n+c\n";
+        assert_eq!(d, expected);
+    }
+
+    #[test]
+    fn diff_unified_shared_last_line_both_no_newline() {
+        // When the unchanged last line is genuinely last on BOTH sides and both
+        // lack a newline, one marker on the shared context line is correct.
+        let d = diff_unified("x\ntail", "y\ntail", "a/f", "b/f");
+        assert!(
+            d.contains(" tail\n\\ No newline at end of file"),
+            "got:\n{d}"
+        );
+        assert_eq!(d.matches("\\ No newline").count(), 1, "got:\n{d}");
+    }
+
+    #[test]
+    fn diff_unified_hunk_counts_are_self_consistent() {
+        // For every @@ header the declared counts must equal the actual number of
+        // context/`-`/`+` body lines in that hunk. This is what makes the output
+        // applyable by git/patch, so check it exhaustively over small inputs.
+        fn seqs(alpha: &[&str], maxlen: usize) -> Vec<Vec<String>> {
+            let mut out = vec![vec![]];
+            let mut frontier = vec![vec![]];
+            for _ in 0..maxlen {
+                let mut next = Vec::new();
+                for s in &frontier {
+                    for c in alpha {
+                        let mut t = s.clone();
+                        t.push((*c).to_string());
+                        out.push(t.clone());
+                        next.push(t);
+                    }
+                }
+                frontier = next;
+            }
+            out
+        }
+        let alpha = ["x", "y", "z"];
+        for a in seqs(&alpha, 4) {
+            for b in seqs(&alpha, 4) {
+                let old: String = a.iter().map(|l| format!("{l}\n")).collect();
+                let new: String = b.iter().map(|l| format!("{l}\n")).collect();
+                let d = diff_unified(&old, &new, "a/f", "b/f");
+                if d.is_empty() {
+                    assert_eq!(a, b);
+                    continue;
+                }
+                let lines: Vec<&str> = d.lines().collect();
+                let mut i = 2; // skip --- / +++
+                while i < lines.len() {
+                    let hdr = lines[i];
+                    assert!(hdr.starts_with("@@ -"), "expected hunk header: {hdr:?}");
+                    // parse "-as,ac +bs,bc"
+                    let parts: Vec<&str> = hdr.trim_start_matches("@@ ").split(' ').collect();
+                    let ac: usize = parts[0].split(',').nth(1).unwrap().parse().unwrap();
+                    let bc: usize = parts[1].split(',').nth(1).unwrap().parse().unwrap();
+                    i += 1;
+                    let (mut got_a, mut got_b) = (0usize, 0usize);
+                    while i < lines.len() && !lines[i].starts_with("@@") {
+                        match lines[i].as_bytes().first() {
+                            Some(b' ') => {
+                                got_a += 1;
+                                got_b += 1;
+                            }
+                            Some(b'-') => got_a += 1,
+                            Some(b'+') => got_b += 1,
+                            _ => {}
+                        }
+                        i += 1;
+                    }
+                    assert_eq!(got_a, ac, "old count mismatch in:\n{d}");
+                    assert_eq!(got_b, bc, "new count mismatch in:\n{d}");
+                }
+            }
+        }
     }
 
     #[test]
