@@ -13,16 +13,16 @@
             ·  by an agent, for agents  ·
 ```
 
-**tarn is the editor your agent wishes it had.** A tiny terminal text editor you can
-actually understand — no modes, no manual, the help is always on screen — and a
-fast, **structural command-line toolkit built for AI agents**: get your bearings in a
-repo (`tree`), map a file (`outline`), jump to where a symbol is defined (`defs`) or
-used (`refs`), search with the enclosing definition of every hit (`find`), and read one
-function by name (`peek`) — LSP-style navigation with no language server. Then edit by
-*unit of meaning*: swap or delete a whole definition (`replace --def`, `delete --def`),
-edit surgically with guards (`replace --expect`, `apply`), refactor (`rename`), patch
-config without reflowing it (`json`/`toml`/`yaml`), and check your work (`check`) — all
-deterministic, `--json`-chainable, and quicker than the system grep. Still zero
+**tarn is the CLI built for AI agents.** A zero-dependency Rust binary for fast,
+structural, surgical code **navigation, search, and editing** — the part of an
+agent's toolchain that replaces the awkward grep/sed/cat/awk dance. It returns
+**exact line numbers** and **meaningful exit codes**, every read and edit speaks
+`--json` so commands chain, and edits are **guarded and atomic** so they're safe
+to script. Orient in a repo (`tree`), map a file (`outline`), jump to where a
+symbol is defined (`defs`) or used (`refs`), read one function by name (`peek`),
+search with the enclosing definition of every hit (`find`) — LSP-style
+navigation with no language server — then edit by *unit of meaning* with a guard
+that refuses if the target moved (`replace --expect`, exit 3). Still zero crate
 dependencies.
 
 > _The name comes from **tarnish** — the slow aging of metal. Polished copper
@@ -30,22 +30,19 @@ dependencies.
 > to [Patina](https://github.com/OneMuppet). (It's also, neatly, a clear mountain
 > lake.)_
 
-- **Zero dependencies.** Pure Rust, std only. Raw mode is done by shelling out to
-  `stty` (always present) instead of pulling in a terminal crate.
-- **Small and readable, with a fast path where it earns it.** Mostly a handful of
-  small, commented modules. The search hot path adds real performance machinery —
-  `mmap`, `std::thread` fan-out, and NEON SIMD — to go toe-to-toe with ripgrep;
-  it's commented and isolated, not sprinkled everywhere.
-- **An editor for humans, a toolkit for agents.** A real full-screen TUI when you
-  open a file in a terminal; a precise, scriptable CLI — navigate, edit, refactor,
-  verify — everywhere else, with meaningful exit codes and `--json` output.
-- **Fast on purpose — and still zero dependencies.** `tarn find -c` memory-maps
-  the file, scans with NEON SIMD (`core::arch`, not a crate), and counts across
-  every core (`std::thread`). On a 10-core box it's ~1.3× **faster than ripgrep**
-  on a single ~380 MB file (~42 vs ~57 ms), at parity across many small files, and
-  ~45× the system grep. And `tarn batch` runs a whole session in one process —
-  ~10,500 edits/sec (~34× over per-call spawn). (Reproducible — see
-  [Performance](#performance).)
+- **An agent's toolchain, not a human's.** Structural where grep gives flat
+  lines, surgical where sed reflows the file, self-describing where the others
+  answer in prose. Built so an agent prefers it over `grep`/`sed`/`cat`/`awk`.
+- **Self-describing in one call.** `tarn help --json` emits a machine-readable
+  manifest of every command — usage, examples, exit codes — so an agent learns
+  the whole surface without docs. Drop [`AGENTS.md`](AGENTS.md) into your harness.
+- **Safe to script.** Exact 1-based line numbers, a stable exit-code contract
+  (`0`/`1`/`2`/`3`), guarded edits (`--expect`), and atomic multi-file batches
+  with rollback. An agent can act without a defensive re-read.
+- **Fast on purpose, zero dependencies.** Pure Rust std — `mmap`, `std::thread`
+  fan-out, and NEON SIMD via `core::arch`/libc FFI, no crates. `tarn find -c`
+  goes toe-to-toe with ripgrep on a single large file; `tarn batch` runs a whole
+  edit session in one process (~10,500 edits/sec). (See [Performance](#performance).)
 
 <div align="center">
 <br>
@@ -66,57 +63,105 @@ tarn help --json        # machine-readable manifest: every command, usage, examp
 tarn help find          # focused help for one command
 ```
 
-Drop [`AGENTS.md`](AGENTS.md) into your harness's context — it's a one-screen guide
-to why and how to use tarn over `grep`/`sed`/`cat`, the everyday loop, and the
-exit-code/`--json` conventions.
+Drop [`AGENTS.md`](AGENTS.md) into your harness's context — a one-screen guide to
+**why and how to use tarn over `grep`/`sed`/`cat`/`awk`**, the everyday loop, and
+the exit-code/`--json` conventions. For the design and the benchmarks behind it,
+see the [whitepaper](whitepaper/tarn-whitepaper.html)
+([PDF](whitepaper/tarn-whitepaper.pdf)).
+
+### The everyday loop
+
+```sh
+tarn tree   src/                                  # 0. see the shape of the codebase
+tarn outline src/ --depth 0                       # 1. map the repo without reading it
+tarn defs   handle_request src/                   # 2. jump to where a symbol is defined
+tarn refs   handle_request src/                   # 3. …and find everyone who uses it
+tarn peek   src/server.rs handle_request          # 4. read one definition by name
+tarn show   src/server.rs --around 42 --highlight 42   # 5. open a region in chat
+tarn replace src/server.rs 42 'new line' --expect 'old line' --diff   # 6. edit, guarded
+tarn check  src/server.rs                         # 7. verify you left no junk
+```
+
+Reading whole files just to find one thing burns context. This loop gives you
+structure cheaply — orient, see a file's shape, jump straight to the symbol,
+edit the one line — all deterministic and `--json`-chainable.
+
+### Command quick-reference (25 commands)
+
+| Task | Command |
+| --- | --- |
+| Orient in a repo | `tarn tree [path] [--depth N] [--lines] [--json]` |
+| Map a file or repo | `tarn outline <path> [--depth N] [--json]` |
+| Search (file or dir) | `tarn find <path> <pat> [-i -w -c -l --enclosing -A/-B/-C N --json]` |
+| Read one definition | `tarn peek <file> <name>` |
+| Go-to-definition | `tarn defs <name> [path] [--json]` |
+| Find-references | `tarn refs <name> [path] [--json] [--limit N]` |
+| Open a region | `tarn show <file> [--around N \| --block N \| --lines A-B] [--highlight A-B]` |
+| Replace a line | `tarn replace <file> <N> <text> [--expect T] [--diff\|--dry-run]` |
+| Replace by content | `tarn replace <file> --match <anchor> <new-line> [--all]` |
+| Insert / delete | `tarn insert <file> <after-N> <text>` · `tarn delete <file> <A-B>` |
+| Edit a whole def | `tarn delete <file> --def <name>` · `… \| tarn replace <file> --def <name>` |
+| Rewrite a file | `… \| tarn write <file>` |
+| Batch / cross-file edit | `… \| tarn apply [file]` (use `file <path>` lines; atomic) |
+| Run a whole session | `… \| tarn batch` (many commands in one process — ~34× over per-call spawn) |
+| Apply a unified diff | `git diff \| tarn patch [--dry-run\|--diff]` (context-matched, relocates drifted hunks, atomic) |
+| Rename (whole-word) | `tarn rename <path> <old> <new> [--in <def>] [--dry-run]` |
+| Read/set/del JSON config | `tarn json get\|set\|del <file> <path> [value]` |
+| Read/set/del TOML config | `tarn toml get\|set\|del <file> <path> [value]` |
+| Read/set/del YAML config | `tarn yaml get\|set\|del <file> <path> [value]` |
+| `.env` key=value | `tarn get\|set\|unset\|keys <file> [KEY[=val]]` |
+| Hygiene gate | `tarn check <file>` |
+| Diff two files | `tarn diff <a> <b>` (0 same / 1 differ / 2 error) |
+| Inspect / view | `tarn view <file> [--numbers]` |
+
+### Exit codes (branch on these)
+
+| code | meaning |
+| --- | --- |
+| `0` | success |
+| `1` | key / file not found, or no matches |
+| `2` | usage error |
+| `3` | guard (`--expect`) failed — nothing written |
+
+`diff` uses POSIX `0`/`1`/`2` (same / differ / error). `--json` on read commands
+returns structured data; on edits it returns a result object you can chain.
 
 ## Install
 
-From a clone (works today, zero setup):
+These are live as of **v0.1.0**.
+
+**Homebrew:**
+
+```sh
+brew install onemuppet/tap/tarn
+```
+
+**Prebuilt binary (no Rust toolchain needed)** — from the
+[v0.1.0 release](https://github.com/OneMuppet/tarn/releases/tag/v0.1.0):
+
+```sh
+# macOS (Apple Silicon)
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.1.0/tarn-v0.1.0-aarch64-apple-darwin.tar.gz | tar xz
+
+# Linux (x86_64)
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.1.0/tarn-v0.1.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
+```
+
+Then put the extracted `tarn` on your `PATH`.
+
+**From crates.io** — the crate is named `tarn-cli` (the name `tarn` was taken),
+but the command it installs is `tarn`:
+
+```sh
+cargo install tarn-cli      # once published (crates.io publish pending)
+```
+
+**From source** — needs only a Rust toolchain, no other dependencies:
 
 ```sh
 cargo install --path .      # builds + installs `tarn` to ~/.cargo/bin
+cargo build --release       # or just build: binary at ./target/release/tarn
 ```
-
-From crates.io — the crate is named `tarn-cli` (the name `tarn` was taken), but
-the command it installs is `tarn`:
-
-```sh
-cargo install tarn-cli      # once published
-```
-
-Or build and place it yourself:
-
-```sh
-cargo build --release       # binary at ./target/release/tarn
-cp target/release/tarn ~/.local/bin/
-```
-
-Needs only a Rust toolchain — no other dependencies.
-
-## The editor
-
-```sh
-tarn notes.md        # opens the full-screen editor
-```
-
-| Key | Action |
-| --- | --- |
-| arrows, `Home`/`End`, `PageUp`/`PageDown` | move |
-| printable keys | insert |
-| `Enter` | split line |
-| `Backspace` / `Delete` | delete |
-| `Tab` | insert 4 spaces |
-| `^S` | save |
-| `^Q` | quit — if there are unsaved changes, press it twice |
-
-The status bar always shows the filename (with a `*` when unsaved), your line:col,
-and the save/quit hints. Discoverability is the point. A warm **copper** accent
-echoes the Patina family; otherwise it stays in your terminal's default colors.
-
-The editor only starts when stdout is a real terminal. If you pipe into it or run
-it under a harness, `tarn` won't try to be a TUI — it prints the file and points
-you at the subcommands below.
 
 ## Navigate a repo without reading it
 
@@ -147,27 +192,13 @@ tarn find   app.py -- '--flag' # use -- to search a pattern that starts with a d
 **Fast on purpose.** `find` matches without allocating per line, skips binaries,
 and parses each file's structure once (only when `--enclosing` needs it). For
 counting (`-c`) it memory-maps, scans with NEON SIMD, and counts across all
-cores — beating ripgrep on a single large file and at parity across many small
-files, and far ahead of the system grep (see [Performance](#performance)).
-And it hands you the enclosing definition, an outline, or a surgical edit, which
-a raw scanner won't.
+cores (see [Performance](#performance)). And it hands you the enclosing
+definition, an outline, or a surgical edit, which a raw scanner won't.
 
 `find` takes a file *or a directory* — pointed at a dir it recurses (skipping
 hidden entries and `target`/`node_modules`/`dist`/`build`, and non-text files),
 grouping hits by file. `--json` hits carry their `file`, so results chain
 straight into `show`/edits across the repo.
-
-After an edit, a quick hygiene gate catches the junk edits tend to leave:
-
-```sh
-tarn check app.py     # exit 0 if clean, 1 if issues (--json for details)
-tarn diff  a.py b.py  # compare two files (exit 0 same / 1 differ / 2 error)
-```
-
-`check` flags trailing whitespace, indentation that mixes tabs and spaces, mixed
-line endings, a missing final newline, a BOM, and trailing blank lines — all
-reliable, parser-free checks. It deliberately does **not** balance braces/quotes
-(that needs a real parser and would false-positive on strings and comments).
 
 ```
 $ tarn outline server.py
@@ -180,22 +211,19 @@ $ tarn outline server.py
 one recursive pass, grouped by file — orient in an unfamiliar codebase without
 opening a thing. `--depth N` limits nesting (`--depth 0` = top-level only).
 
-Structure is **heuristic, not semantic** — tarn has no language parser (zero
-deps). It uses extension-aware keyword patterns — Python, Rust, JS/TS, Go, Ruby,
-PHP, Swift, Kotlin (incl. `data`/`suspend` modifiers), and class/type-level for
-Java/C#/C/C++, plus Markdown `#` headings, with a keyword union as the fallback;
-nesting depth comes from
-indentation/heading level, and a def's extent from indentation. That nails the
-common case; a def whose body holds an unindented multi-line string may report a
-short end range. `find` is literal substring (`-i` = ASCII case-insensitive),
-not regex. Everything takes `--json` so results chain into `show`/edits.
+> **Honest limit — structure is heuristic, not a parser.** tarn has no language
+> parser (zero deps). It uses extension-aware keyword + indentation patterns —
+> Python, Rust, JS/TS, Go, Ruby, PHP, Swift, Kotlin, and class/type-level for
+> Java/C#/C/C++, plus Markdown `#` headings, with a keyword union fallback. That
+> nails the common case; a def whose body holds an unindented multi-line string
+> may report a short end range. And `find` is **literal substring** (`-i` = ASCII
+> case-insensitive), **not regex**.
 
-## Opening & editing documents (for AI harnesses)
+## Open & edit a document (for AI harnesses)
 
 The interactive editor needs a real terminal, which an agent like Claude Code
-doesn't have — its commands' stdout just lands in the chat. So tarn gives an
-agent a way to **open a document right in the conversation** and edit it
-precisely, entirely through stdout and exit codes.
+doesn't have. So tarn gives an agent a way to **open a document right in the
+conversation** and edit it precisely, entirely through stdout and exit codes.
 
 **Open a document** — an editor-style, windowed snapshot:
 
@@ -218,8 +246,8 @@ tarn show app.py --around 27 --highlight 27   # mark the line of interest
 Color is on when stdout is a TTY and off otherwise (honoring `NO_COLOR`), so
 harness-captured output stays clean; force it with `--plain` / `--color`.
 
-**Edit by line** — surgical, like the `.env` commands but for any text. Add
-`--diff` to print a line-numbered diff so the change is reviewable inline:
+**Edit by line** — surgical. Add `--diff` to print a line-numbered diff so the
+change is reviewable inline:
 
 ```sh
 tarn replace app.py 2 '    print(f"hi {name}!")' --diff
@@ -312,6 +340,10 @@ insert 0 //! updated port
 OPS
 ```
 
+`tarn batch` runs a whole **command stream** (not just edit ops) in one process,
+so an edit-heavy session isn't paying OS process-spawn per call — ~10,500
+edits/sec, ~34× over per-call spawn (see [Performance](#performance)).
+
 ### Rename across a file or directory
 
 `tarn rename` does a **whole-word** rename by default, so `port` never touches
@@ -326,128 +358,61 @@ tarn rename app.py x n --in alpha             # only within the definition named
 ```
 
 `--in <def>` scopes the rename to a single named definition's body (per file),
-so a local rename never touches a same-named identifier elsewhere.
+so a local rename never touches a same-named identifier elsewhere. Exit 1 if
+there were no occurrences. `--json` reports `{from,to,word,total,files:[…]}`.
 
-Exit 1 if there were no occurrences. `--json` reports `{from,to,word,total,files:[…]}`.
+### Verify your work
 
-### Edit JSON config by path (format-preserving)
+```sh
+tarn check app.py     # exit 0 if clean, 1 if issues (--json for details)
+tarn diff  a.py b.py  # compare two files (exit 0 same / 1 differ / 2 error)
+```
+
+`check` flags trailing whitespace, indentation that mixes tabs and spaces, mixed
+line endings, a missing final newline, a BOM, and trailing blank lines — all
+reliable, parser-free checks. It deliberately does **not** balance braces/quotes
+(that needs a real parser and would false-positive on strings and comments).
+
+## Edit config by path (format-preserving)
 
 Agents edit config constantly and usually clobber it — a full reparse/reserialize
-reorders keys and reflows the file. `tarn json` instead edits **surgically**: it
-locates just the target value's byte span and splices it, leaving every other
-byte (whitespace, key order, layout) identical.
+reorders keys and reflows the file. tarn instead edits **surgically**: it locates
+just the target value's byte span and splices it, leaving every other byte
+(whitespace, key order, layout) identical. Same model for **JSON, TOML, and YAML**.
 
 ```sh
 tarn json get config.json server.port        # 8000   (strings come back decoded)
-tarn json get config.json tags.0             # array/object indices work: a.b.0.c
 tarn json set config.json server.port 9090   # number stays a number
-tarn json set config.json name prod          # a bare word is auto-quoted -> "prod"
 tarn json set config.json tags '["x","y"]' --diff   # valid JSON is used verbatim
-```
+tarn json del config.json deprecated         # comma-aware splice keeps it valid
 
-`get` exits 1 if the path is absent; `set` never creates paths (exit 1 if absent)
-and takes `--dry-run`/`--diff`. `tarn json del <file> <path>` removes a member or
-array element with comma-aware splicing so the result stays valid JSON. It's
-hand-rolled, zero-dep, and JSON-only (a key that literally contains `.` isn't
-addressable).
-
-### …and TOML, the same way
-
-`tarn toml get/set` does the same surgical, format-preserving edit for TOML —
-ideal for `Cargo.toml`, `pyproject.toml`, and friends. Paths are dotted across
-table headers and keys; comments, key order, and layout are untouched.
-
-```sh
 tarn toml get Cargo.toml package.version          # "0.1.0"  (strings decoded)
 tarn toml set Cargo.toml package.version 0.2.0    # → version = "0.2.0"  (auto-quoted)
-tarn toml set Cargo.toml profile.release.opt-level 2 --diff
 tarn toml set pyproject.toml tool.ruff.line-length 100
-```
+tarn toml del Cargo.toml dependencies.unused
 
-Genuine bare values (numbers, bools, dates) stay bare; anything else (e.g. a
-semver) is quoted so the result is always valid TOML. It handles `[table]`/
-`[table.sub]` headers, dotted keys, and single-line values; multiline strings,
-multiline arrays, and arrays-of-tables (`[[x]]`) are tracked so parsing never
-breaks, but `set` on them errors rather than risk a bad edit (it never corrupts).
-
-### …and YAML, for the config world agents live in
-
-`tarn yaml get/set` brings the same surgical, format-preserving edit to YAML —
-the format behind Kubernetes, GitHub Actions, docker-compose, and Ansible. Paths
-are dotted across nested block mappings; comments, indentation, and key order are
-untouched.
-
-```sh
 tarn yaml get deploy.yaml spec.replicas        # 3
 tarn yaml set deploy.yaml spec.replicas 5 --diff
 tarn yaml set .github/workflows/ci.yml jobs.build.timeout-minutes 30
-```
-
-It edits **block-mapping scalar values** (the overwhelming majority of config
-keys); a value is quoted only when a plain scalar would be unsafe, so the result
-is always valid YAML. Sequences (`- item`), flow collections (`[..]`/`{..}`),
-block scalars (`|`/`>`), anchors/aliases, and multi-document streams are tracked
-so parsing never misreads them — but `set` on them **errors rather than corrupt**.
-
-**Deleting keys.** `tarn toml del <file> <path>` and `tarn yaml del <file> <path>`
-remove a key's whole line, preserving everything else (comments, order, siblings)
-— the delete half of surgical config CRUD. They refuse (and leave the file
-untouched) on the same unsupported targets as `set`.
-
-```sh
-tarn toml del Cargo.toml dependencies.unused
 tarn yaml del deploy.yaml spec.replicas --diff
 ```
 
-## The scriptable side (for AI harnesses & scripts)
+All three are hand-rolled and zero-dep. Paths are dotted across nested
+tables/mappings; comments, key order, and layout are untouched. Genuine bare
+values stay bare and anything else is quoted, so the result is always valid.
+Unsupported targets (multiline strings, arrays-of-tables, YAML sequences/flow
+collections/block scalars/anchors, multi-document streams) are **tracked so
+parsing never misreads them — but `set`/`del` on them errors rather than risk a
+bad edit.** It never corrupts.
 
-These are non-interactive and deterministic. Edits are **surgical**: comments,
-blank lines, and ordering are always preserved — only the target key's line is
-touched.
+For `.env`-style files, the same surgical guarantee applies via `get`/`set`/
+`unset`/`keys` — comments and blank lines survive every edit:
 
 ```sh
 tarn get   .env DATABASE_URL      # print the value (exit 1 if missing)
-tarn set   .env PORT=8080         # add or update PORT
-tarn set   .env PORT 8080         # same thing, space form
+tarn set   .env PORT=8080         # add or update PORT (space form works too)
 tarn unset .env OLD_KEY           # remove it          (alias: rm)
 tarn keys  .env                   # list keys, one per line (alias: list)
-tarn view  .env                   # print the file     (alias: cat)
-tarn view  .env --numbers         # ...with line numbers
-```
-
-**Exit codes** (so scripts can branch reliably):
-
-| code | meaning |
-| --- | --- |
-| `0` | success |
-| `1` | key / file not found |
-| `2` | usage error |
-| `3` | guard (`--expect`) failed |
-
-### key=value semantics
-
-A *key line* is `[whitespace][export ]KEY[whitespace]=value`, where `KEY` is made
-of `A–Z a–z 0–9 _ .`. Everything else (comments, blanks) is opaque and untouched.
-
-- **get** — value is the text after the first `=`, trimmed, with one layer of
-  matching surrounding quotes (`'` or `"`) removed. If a key appears more than
-  once, the last occurrence wins.
-- **set** — if the key exists, its line is rewritten in place (an `export ` prefix
-  is kept); otherwise `KEY=value` is appended. The value is written **verbatim** —
-  you supply any quoting. The file always ends with a single trailing newline.
-- **unset** — removes every line assigning that key.
-- **keys** — unique keys in first-seen order.
-
-Example — note how the comment and blank line survive an edit:
-
-```sh
-$ printf '# db\nHOST=localhost\n\nPORT=5432\n' > .env
-$ tarn set .env PORT 8080
-$ tarn view .env
-# db
-HOST=localhost
-
-PORT=8080
 ```
 
 ## Performance
@@ -467,29 +432,63 @@ dependencies**. Three ideas, all std-only:
 
 Measured on a 10-core Apple Silicon laptop, counting lines containing `function`,
 warm cache, median of 15 runs (figures bounce ±~15% run to run, so these are
-representative, not cherry-picked):
+representative, not cherry-picked — identical counts across all three tools):
 
 | workload | `tarn find -c` | `ripgrep -c` | `ugrep -c` (system grep) |
 | --- | --- | --- | --- |
 | one ~380 MB file | **~42 ms** | ~57 ms | ~2.2 s |
 | ~380 MB across 3,000 files | ~52 ms | ~48 ms | ~2.3 s |
 
-On a **single large file** tarn is ~1.3× **faster than ripgrep** (mmap + NEON +
-all cores). Across **many small files** it's at **parity** — ripgrep's tuned
-per-file walk edges it ~1.1×. Both are **~45× faster than the system grep**, with
-identical counts and **zero dependencies**. Reproduce it: build `--release` and
-point `tarn find -c` and `rg -c` at the same target.
+On a **single large file** tarn is ~1.3× faster than ripgrep (mmap + NEON + all
+cores), and ~45× faster than the system grep. Across **many small files** it's at
+**parity** — ripgrep's tuned per-file walk edges it slightly. Reproduce it: build
+`--release` and point `tarn find -c` and `rg -c` at the same target.
 
-**Editing throughput.** An agent's edit-heavy session is bottlenecked by OS
-process spawn (~3.3 ms/call), not tarn — its edit work is ~0.1–0.2 ms. `tarn
-batch` runs a whole command stream in one process: **1000 edits in ~95 ms
-(~10,500 edits/sec), ~34× faster** than 1000 separate invocations.
+**We don't claim "10× on one scan."** A single count is at the
+memory-bandwidth ceiling — counting a 380 MB file takes about as long as merely
+`cat`-ing it reads the bytes. There's no honest 10× to be had on one pass. The
+real multiplier for an agent is **repeated navigation + batched edits**:
 
-The structure pass behind `outline`/`defs`/`refs`/`peek` is separately fast:
-allocation-free on the hot line scan (a byte-prefix keyword test per line, not a
-`format!` per keyword per line) — parsing a 289 MB file dropped from ~10 s to
-~1.5 s. And the diff renderer trims the common prefix/suffix so a one-line change
-in a 40k-line file diffs in ~26 ms instead of ~7 s.
+- **`tarn batch`** runs a whole command session in one process — ~10,500
+  edits/sec, **~34× over per-call process spawn**. An agent's edit loop is
+  bottlenecked by OS spawn (~3.3 ms/call), not by tarn's edit work (~0.1–0.2 ms).
+- The structure pass behind `outline`/`defs`/`refs`/`peek` is allocation-free on
+  the hot line scan — parsing a 289 MB file dropped from ~10 s to ~1.5 s.
+- The diff renderer trims the common prefix/suffix so a one-line change in a
+  40k-line file diffs in ~26 ms instead of ~7 s.
+
+**Quality.** 25 commands, **124 tests**, gated by adversarial review on every
+feature. The unsafe NEON path is **AddressSanitizer-clean** and the SIMD counter
+is **differential-tested** against the scalar implementation and against
+`rg`/`grep` (zero mismatches). Zero crate dependencies — std only, with `mmap`,
+NEON SIMD, and threads via `core::arch`/libc FFI.
+
+## Interactive editor (you can actually exit)
+
+tarn does ship a real full-screen terminal editor — open a file in a terminal and
+you get one. It's a secondary mode, not the headline: the headline is the agent
+CLI above. But it exists, it's tiny, and — yes — you can quit it (`^Q`).
+
+```sh
+tarn notes.md        # opens the full-screen editor when stdout is a real terminal
+```
+
+| Key | Action |
+| --- | --- |
+| arrows, `Home`/`End`, `PageUp`/`PageDown` | move |
+| printable keys | insert |
+| `Enter` | split line |
+| `Backspace` / `Delete` | delete |
+| `Tab` | insert 4 spaces |
+| `^S` | save |
+| `^Q` | quit — if there are unsaved changes, press it twice |
+
+No modes, no manual — the help is always on screen. The status bar shows the
+filename (with a `*` when unsaved), your line:col, and the save/quit hints. A warm
+**copper** accent echoes the Patina family; otherwise it stays in your terminal's
+default colors. The editor only starts when stdout is a real terminal — pipe into
+it or run it under a harness and `tarn` won't try to be a TUI; it prints the file
+and points you at the subcommands.
 
 ## Design notes
 
@@ -519,6 +518,13 @@ src/yaml.rs       surgical YAML get/set by path (block mappings)
 src/help.rs       agent-native manifest (`help --json`) + per-command help
 ```
 
+## More
+
+- [`AGENTS.md`](AGENTS.md) — the one-screen drop-in guide for your harness.
+- [whitepaper](whitepaper/tarn-whitepaper.html) ([PDF](whitepaper/tarn-whitepaper.pdf)) — the design, the benchmarks, and an honest negative result.
+- [`CHANGELOG.md`](CHANGELOG.md) — what's shipped.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to build, test, and contribute.
+
 ## License
 
-MIT.
+MIT. See [`LICENSE`](LICENSE).
