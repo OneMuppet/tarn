@@ -982,6 +982,7 @@ fn yaml_set(args: &[String]) -> u8 {
 fn cmd_diff(args: &[String]) -> u8 {
     let color_pref = color_flag(args);
     let unified = args.iter().any(|s| s == "-u" || s == "--unified");
+    let stat = args.iter().any(|s| s == "--stat");
     let pos: Vec<&str> = args
         .iter()
         .map(|s| s.as_str())
@@ -1000,6 +1001,12 @@ fn cmd_diff(args: &[String]) -> u8 {
     };
     if ca == cb {
         return EXIT_OK; // identical
+    }
+    if stat {
+        let (ins, del) = render::diff_stat(&ca, &cb);
+        println!("{b}: +{ins} -{del} ({} change(s))", ins + del);
+        let _ = io::stdout().flush();
+        return EXIT_NOT_FOUND;
     }
     if unified {
         print!(

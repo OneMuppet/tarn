@@ -111,7 +111,7 @@ edit the one line — all deterministic and `--json`-chainable.
 | Read/set/del YAML config | `tarn yaml get\|set\|del <file> <path> [value]` |
 | `.env` key=value | `tarn get\|set\|unset\|keys <file> [KEY[=val]]` |
 | Hygiene gate | `tarn check <file>` |
-| Diff two files | `tarn diff <a> <b> [-u]` (0 same / 1 differ / 2 error; `-u` = unified patch) |
+| Diff two files | `tarn diff <a> <b> [-u] [--stat]` (0 same / 1 differ / 2 error; `-u` = unified patch, `--stat` = magnitude) |
 | Inspect / view | `tarn view <file> [--numbers]` |
 
 ### Exit codes (branch on these)

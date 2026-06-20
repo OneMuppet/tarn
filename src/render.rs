@@ -416,6 +416,17 @@ pub fn diff_unified(old: &str, new: &str, label_a: &str, label_b: &str) -> Strin
     out
 }
 
+/// Count inserted / deleted lines for `old` -> `new` (the `--stat` magnitude).
+/// A changed line counts as one of each (one `-`, one `+`), matching `diff`/git.
+pub fn diff_stat(old: &str, new: &str) -> (usize, usize) {
+    let a: Vec<&str> = old.lines().collect();
+    let b: Vec<&str> = new.lines().collect();
+    let ops = align(&a, &b);
+    let ins = ops.iter().filter(|o| matches!(o, Op::Ins(_))).count();
+    let del = ops.iter().filter(|o| matches!(o, Op::Del(_))).count();
+    (ins, del)
+}
+
 // --- JSON (hand-rolled; no serde, keeping the zero-dependency rule) ----------
 fn jesc(s: &str) -> String {
     let mut o = String::with_capacity(s.len() + 2);
@@ -1210,6 +1221,18 @@ mod tests {
         let expected =
             "--- a/f\n+++ b/f\n@@ -1,2 +1,3 @@\n a\n-b\n\\ No newline at end of file\n+b\n+c\n";
         assert_eq!(d, expected);
+    }
+
+    #[test]
+    fn diff_stat_counts_insertions_and_deletions() {
+        // changed line = one del + one ins
+        assert_eq!(diff_stat("a\nb\nc\n", "a\nB\nc\n"), (1, 1));
+        // pure insertions
+        assert_eq!(diff_stat("a\n", "a\nb\nc\n"), (2, 0));
+        // pure deletions
+        assert_eq!(diff_stat("a\nb\nc\n", "a\n"), (0, 2));
+        // identical
+        assert_eq!(diff_stat("x\ny\n", "x\ny\n"), (0, 0));
     }
 
     #[test]

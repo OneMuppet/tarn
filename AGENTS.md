@@ -70,7 +70,7 @@ tarn check src/server.rs             # 7. verify you left no junk
 | Read/set/del TOML config | `tarn toml get\|set\|del <file> <path> [value]` |
 | Read/set/del YAML config | `tarn yaml get\|set\|del <file> <path> [value]` |
 | Hygiene gate | `tarn check <file>` |
-| Diff two files | `tarn diff <a> <b> [-u]` (0 same / 1 differ / 2 error; `-u` emits a standard unified patch) |
+| Diff two files | `tarn diff <a> <b> [-u] [--stat]` (0 same / 1 differ / 2 error; `-u` = unified patch, `--stat` = +ins/-del magnitude) |
 
 ## Conventions
 

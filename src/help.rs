@@ -153,8 +153,8 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd {
         name: "diff",
         group: "verify",
-        usage: "tarn diff <a> <b> [-u|--unified] [--plain|--color]",
-        summary: "Show how file <a> differs from file <b> (line-numbered). With -u/--unified, emit a standard unified diff (git/patch/tarn-patch applyable). Exit 0 identical, 1 differ, 2 trouble.",
+        usage: "tarn diff <a> <b> [-u|--unified] [--stat] [--plain|--color]",
+        summary: "Show how file <a> differs from file <b> (line-numbered). With -u/--unified, emit a standard unified diff (git/patch/tarn-patch applyable); --stat shows just the +ins/-del magnitude. Exit 0 identical, 1 differ, 2 trouble.",
         examples: &["tarn diff expected.txt actual.txt", "tarn diff a.txt b.txt -u | tarn patch"],
     },
     Cmd {
