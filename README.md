@@ -459,9 +459,9 @@ real multiplier for an agent is **repeated navigation + batched edits**:
 
 **Quality.** 25 commands, **124 tests**, gated by adversarial review on every
 feature. The unsafe NEON path is **AddressSanitizer-clean** and the SIMD counter
-is **differential-tested** against the scalar implementation and against
-`rg`/`grep` (zero mismatches). Zero crate dependencies — std only, with `mmap`,
-NEON SIMD, and threads via `core::arch`/libc FFI.
+is **differential-tested** against a scalar oracle (900+ fuzz cases); its counts
+also match `rg`/`grep` on the benchmark corpus. Zero crate dependencies — std
+only, with `mmap`, NEON SIMD, and threads via `core::arch`/libc FFI.
 
 ## Interactive editor (you can actually exit)
 

@@ -325,9 +325,9 @@
     <p><b>Adversarial review on every feature.</b> A ruthless reviewer agent gated each change before it
     shipped — and earned its keep: it caught a real <code>.env</code> data-loss bug (a non-UTF-8 byte made
     <code>set</code> wipe the file), a CRLF counting seam, and exit-code contract violations, each fixed at the root.</p>
-    <p><b>Counts proven exact.</b> The SIMD scanner was differential-tested across 900+ cases against the
-    previous implementation and against <code>rg</code>/<code>grep</code> — zero mismatches — and a 3,000-input fuzz vs a naive
-    oracle. The unsafe NEON code is AddressSanitizer-clean.</p>
+    <p><b>Counts proven exact.</b> The SIMD scanner is differential-tested against a scalar oracle — 900+ fuzz
+    cases plus a 3,000-input run, zero mismatches — and its counts match <code>rg</code>/<code>grep</code> on the
+    benchmark corpus. The unsafe NEON code is AddressSanitizer-clean.</p>
     <p><b>Edits never corrupt.</b> Line endings (LF/CRLF) and final-newline state are preserved on every
     edit; format-preserving config edits keep comments and key order; multi-file batches roll back as a unit.</p>
     <p><b>124 tests, clippy &amp; fmt clean, CI green.</b> Every benchmark in this paper is reproducible from the
