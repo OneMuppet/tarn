@@ -3,7 +3,7 @@
 ![tarn](assets/banner.svg)
 
 [![CI](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml/badge.svg)](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml)
-&nbsp;zero dependencies&nbsp;·&nbsp;96 tests
+&nbsp;zero dependencies&nbsp;·&nbsp;122 tests
 
 </div>
 
@@ -39,11 +39,11 @@ dependencies.
   verify — everywhere else, with meaningful exit codes and `--json` output.
 - **Fast on purpose — with zero dependencies.** `tarn find -c` memory-maps the
   file and counts matching lines across every core (`mmap` + `std::thread`, no
-  crates). On a 10-core box it lands at **parity with — often a hair ahead of —
-  ripgrep** on large-file counting (~45–55 ms on ~380 MB), and is ~8× faster than
-  the system grep. ripgrep's SIMD still wins on a single core or for full match
-  *output*; tarn's trick is using all your cores on the parts that parallelize.
-  (Reproducible — see [Performance](#performance).)
+  crates). On a 10-core box it's at **parity with ripgrep counting a single large
+  file** (~60 ms on ~380 MB), ~1.5× behind it across many small files (ripgrep's
+  SIMD scan), and ~20–30× faster than the system grep. tarn's trick is using all
+  your cores to make up for not having SIMD. (Reproducible — see
+  [Performance](#performance).)
 
 <div align="center">
 <br>
@@ -145,7 +145,8 @@ tarn find   app.py -- '--flag' # use -- to search a pattern that starts with a d
 **Fast on purpose.** `find` matches without allocating per line, skips binaries,
 and parses each file's structure once (only when `--enclosing` needs it). For
 counting (`-c`) it memory-maps and scans across all cores — at parity with
-ripgrep on a large file, ~8× the system grep (see [Performance](#performance)).
+ripgrep on a large file (~1.5× behind across many small files), and far ahead of
+the system grep (see [Performance](#performance)).
 And it hands you the enclosing definition, an outline, or a surgical edit, which
 a raw scanner won't.
 
@@ -456,21 +457,24 @@ the file (`mmap`, via libc FFI — no crate) and counts matching lines across ev
 core with `std::thread`. `\n` is always a UTF-8 boundary, so each chunk validates
 and counts independently and the sum is exact.
 
-Measured on a 10-core Apple Silicon laptop against a **~380 MB** single-file
-corpus of real source, counting the lines that contain `function`, warm cache,
-best of 9:
+Measured on a 10-core Apple Silicon laptop, counting lines containing `function`,
+warm cache, median of 15 runs (with min in parens):
 
-| tool | `-c` (count) | vs tarn |
-| --- | --- | --- |
-| **`tarn find -c`** | **~45–55 ms** | — |
-| `ripgrep -c` | ~55–57 ms | **at parity — tarn edges it** |
-| `ugrep -c` (the system `grep` here) | ~1758 ms | tarn **~8.6× faster** |
+| workload | `tarn find -c` | `ripgrep -c` | `ugrep -c` (system grep) |
+| --- | --- | --- | --- |
+| one ~380 MB file | **~61 ms** (52) | ~60 ms (57) | ~1760 ms |
+| ~380 MB across 3,000 files | ~86 ms (79) | **~53 ms** (51) | — |
 
-So on a multi-core machine, std-only tarn lands at parity with — and often a hair
-ahead of — ripgrep on large-file counting, while staying dependency-free. (On a
-single core, or for full match *output* rather than `-c`, ripgrep's SIMD still
-wins; tarn's edge is the parallel count.) Reproduce it: build `--release` and
-point `tarn find -c` and `rg -c` at any large file.
+Honest read: on a **single large file** tarn is at **parity** with ripgrep
+(~60 ms either way) — it memory-maps the file and counts across all cores, which
+makes up for not having SIMD. Across **many small files** ripgrep is still ~1.5×
+faster: its SIMD per-byte scan out-throughputs std's, and that gap shows once the
+parallel-walk advantage is shared. Both are ~20–30× faster than the system grep.
+tarn gets here with **zero crate dependencies** (the `mmap` is libc FFI, the
+fan-out is `std::thread`); closing the last gap would mean hand-written SIMD,
+which trades away the "readable in one sitting" the project is built on.
+Reproduce it: build `--release` and point `tarn find -c` and `rg -c` at the same
+target.
 
 The structure-aware path (`outline`/`defs`/`refs`/`peek`) is separately fast:
 its parser is allocation-free on the hot line scan, and the diff renderer trims

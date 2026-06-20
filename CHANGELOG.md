@@ -38,8 +38,8 @@ The current feature set, ahead of the first published release.
 - Meaningful exit codes: `0` ok, `1` not-found, `2` usage, `3` guard (`--expect`) failed (POSIX `0`/`1`/`2` for `diff`).
 - Line-ending (LF/CRLF) and trailing-newline state preserved on every edit.
 
-### Performance (std-only, no SIMD/mmap)
-- `find -c` memory-maps the file (`mmap` via libc FFI, no crate) and counts matching lines across all cores (`std::thread`); on a 10-core box it lands at parity with — often a hair ahead of — ripgrep on a ~380 MB file (~45–55 ms), and ~8× faster than the system grep. `\n` is always a UTF-8 boundary, so each chunk validates and counts independently and the sum is exact.
+### Performance (std-only, no SIMD; `mmap` via libc FFI)
+- `find -c` memory-maps the file (`mmap` via libc FFI, no crate) and counts matching lines across all cores (`std::thread`); on a 10-core box it's at parity with ripgrep counting a single ~380 MB file (~60 ms each), ~1.5× behind ripgrep across many small files (its SIMD scan), and ~20–30× faster than the system grep. `\n` is always a UTF-8 boundary, so each chunk validates and counts independently and the sum is exact.
 - The structure parse behind `outline`/`defs`/`refs`/`peek` is allocation-free on the hot path (~6× faster than before).
 - The diff renderer trims the common prefix/suffix and runs LCS only on the differing middle — a one-line change in a 40k-line file went from ~7 s / ~6 GB to ~26 ms / ~7 MB.
 

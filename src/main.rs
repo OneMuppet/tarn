@@ -1507,26 +1507,37 @@ fn cmd_find(args: &[String]) -> u8 {
     }
     let multi = files.len() > 1;
 
+    // Pure-count fast path, handled up front so it can parallelize: memory-map
+    // each file and count distinct matching lines, fanning ACROSS files over
+    // cores for a directory, or splitting a single big file WITHIN itself.
+    // Binary / non-UTF-8 files are skipped, same as the read path below.
+    if count_only && can_fast_count(pattern, ignore_case, word) {
+        let total = if files.len() == 1 {
+            scan_count(&files[0], pattern, true).unwrap_or(0)
+        } else {
+            count_files_parallel(&files, pattern)
+        };
+        if total == 0 {
+            return EXIT_NOT_FOUND;
+        }
+        if json {
+            println!(
+                "{{\"pattern\":{},\"total\":{}}}",
+                render::jstr(pattern),
+                total
+            );
+        } else {
+            println!("{total}");
+        }
+        return EXIT_OK;
+    }
+
     let mut matches: Vec<render::FindMatch> = Vec::new();
     let mut total = 0usize;
     let mut hit_files = 0usize;
     let mut matched_files: Vec<String> = Vec::new();
 
     for f in &files {
-        // Pure-count fast path: memory-map the file and count distinct matching
-        // lines across cores (each chunk validates its own UTF-8 and counts), so
-        // both the read-copy and the whole-buffer `from_utf8` are avoided. `None`
-        // skips a binary or non-UTF-8 file, just like the read path below.
-        if count_only && can_fast_count(pattern, ignore_case, word) {
-            if let Some(file_count) = scan_count(f, pattern) {
-                if file_count > 0 {
-                    total += file_count;
-                    hit_files += 1;
-                }
-            }
-            continue;
-        }
-
         // Read raw bytes; skip binaries fast (a NUL in the first chunk is the
         // usual giveaway) and anything that isn't valid UTF-8 text.
         let bytes = match fs::read(f) {
@@ -1717,21 +1728,62 @@ fn can_fast_count(pat: &str, ci: bool, word: bool) -> bool {
 /// available (non-Unix, empty file, map failure). Returns `None` to skip the
 /// file: a binary (NUL in the first 8 KiB) or anything not valid UTF-8 — exactly
 /// what the regular read+`from_utf8` path skips.
-fn scan_count(path: &Path, pat: &str) -> Option<usize> {
-    let is_binary = |b: &[u8]| b.iter().take(8192).any(|&x| x == 0);
-    #[cfg(unix)]
-    if let Some(map) = mmap::Mapped::open(path) {
-        let bytes = map.bytes();
-        if is_binary(bytes) {
-            return None;
+/// `parallel` splits ONE file's scan across cores (for a single big file). When
+/// the caller is already fanning out across many files (a directory), it passes
+/// `false` so each file is counted serially on its worker thread — no thread
+/// oversubscription.
+fn scan_count(path: &Path, pat: &str, parallel: bool) -> Option<usize> {
+    let count = |bytes: &[u8]| -> Option<usize> {
+        if bytes.iter().take(8192).any(|&x| x == 0) {
+            return None; // binary → skip, like the read path
         }
-        return count_matching_lines_par_bytes(bytes, pat);
+        if parallel {
+            count_matching_lines_par_bytes(bytes, pat)
+        } else {
+            Some(count_matching_lines(std::str::from_utf8(bytes).ok()?, pat))
+        }
+    };
+    // `mmap` only pays off on big files: the map/unmap syscalls cost more than
+    // just reading a small file, which dominates when scanning a tree of many
+    // small files. So map only above a threshold; otherwise read. (ripgrep makes
+    // the same large-file-only choice.)
+    #[cfg(unix)]
+    const MMAP_MIN: u64 = 256 * 1024;
+    #[cfg(unix)]
+    if std::fs::metadata(path).map(|m| m.len()).unwrap_or(0) >= MMAP_MIN {
+        if let Some(map) = mmap::Mapped::open(path) {
+            return count(map.bytes());
+        }
     }
-    let bytes = fs::read(path).ok()?;
-    if is_binary(&bytes) {
-        return None;
-    }
-    count_matching_lines_par_bytes(&bytes, pat)
+    count(&fs::read(path).ok()?)
+}
+
+/// Sum `find -c` across many files, fanning the files out over CPU cores with
+/// `std::thread` — the part of a recursive search ripgrep parallelizes and tarn
+/// previously did serially. Each worker counts its files serially (the count is
+/// order-independent, so the threads just sum). Skipped files (binary/non-UTF-8)
+/// contribute nothing, exactly as in the serial walk.
+fn count_files_parallel(files: &[PathBuf], pat: &str) -> usize {
+    let nthreads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .min(files.len())
+        .max(1);
+    let chunk = files.len().div_ceil(nthreads);
+    std::thread::scope(|s| {
+        let handles: Vec<_> = files
+            .chunks(chunk)
+            .map(|group| {
+                s.spawn(move || {
+                    group
+                        .iter()
+                        .filter_map(|f| scan_count(f, pat, false))
+                        .sum::<usize>()
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap_or(0)).sum()
+    })
 }
 
 fn count_matching_lines_par_bytes(bytes: &[u8], pat: &str) -> Option<usize> {
