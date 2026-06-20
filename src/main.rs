@@ -1834,27 +1834,102 @@ fn count_matching_lines_par_bytes(bytes: &[u8], pat: &str) -> Option<usize> {
     })
 }
 
-/// Count the distinct lines containing `pat` (case-sensitive substring) using a
-/// SINGLE substring searcher over the whole buffer — the fast path for
-/// `find -c`. `match_indices` yields match offsets in increasing order; a match
-/// starts a new line iff there's a newline between it and the previous match, so
-/// several matches on one line count once. Callers must gate this with
-/// [`can_fast_count`]: `pat` must be non-empty and free of `\r`/`\n` (a `\r` in
-/// the haystack is fine; a `\r`/`\n` in the pattern is not handled here).
-fn count_matching_lines(content: &str, pat: &str) -> usize {
+/// Find the next byte `b` in `hay` at or after `from`. The hot primitive of the
+/// search: on aarch64 it scans 16 bytes per step with a NEON compare (still
+/// std-only — `core::arch` intrinsics, no crate); everywhere else it's a scalar
+/// scan.
+#[inline]
+fn memchr_from(hay: &[u8], b: u8, from: usize) -> Option<usize> {
+    #[cfg(target_arch = "aarch64")]
+    {
+        // SAFETY: NEON is baseline on aarch64; only in-bounds reads are made.
+        unsafe { memchr_neon(hay, b, from) }
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        hay.get(from..)?
+            .iter()
+            .position(|&x| x == b)
+            .map(|p| from + p)
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline]
+unsafe fn memchr_neon(hay: &[u8], b: u8, from: usize) -> Option<usize> {
+    use std::arch::aarch64::*;
+    let n = hay.len();
+    if from >= n {
+        return None;
+    }
+    let ptr = hay.as_ptr();
+    let target = vdupq_n_u8(b);
+    let mut i = from;
+    // 16 bytes per iteration: compare-equal, then a horizontal max tells us if
+    // any lane matched; only then do we locate the exact byte.
+    while i + 16 <= n {
+        let chunk = vld1q_u8(ptr.add(i));
+        if vmaxvq_u8(vceqq_u8(chunk, target)) != 0 {
+            for k in 0..16 {
+                if *ptr.add(i + k) == b {
+                    return Some(i + k);
+                }
+            }
+        }
+        i += 16;
+    }
+    while i < n {
+        if *ptr.add(i) == b {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Count the distinct lines of `hay` that contain `needle` (case-sensitive
+/// substring). The hot path for `find -c`: it scans for the needle's first byte
+/// with a SIMD `memchr`, verifies full matches (cheap last-byte reject first),
+/// and counts a new line whenever a `\n` falls between consecutive matches — so
+/// several matches on one line count once. Callers gate this via
+/// [`can_fast_count`]: `needle` is non-empty and free of `\r`/`\n`.
+fn count_lines_bytes(hay: &[u8], needle: &[u8]) -> usize {
+    if needle.is_empty() {
+        return 0; // guarded by can_fast_count; avoids the empty-needle degenerate
+    }
+    let llen = needle.len();
+    let first = needle[0];
+    let last = needle[llen - 1];
     let mut count = 0usize;
     let mut prev: Option<usize> = None;
-    for (off, _) in content.match_indices(pat) {
-        let new_line = match prev {
-            Some(p) => content[p..off].contains('\n'),
-            None => true,
+    let mut i = 0usize;
+    while i + llen <= hay.len() {
+        let p = match memchr_from(hay, first, i) {
+            Some(p) if p + llen <= hay.len() => p,
+            _ => break,
         };
-        if new_line {
-            count += 1;
+        // Leftmost, non-overlapping matches (like str::match_indices).
+        if hay[p + llen - 1] == last && &hay[p..p + llen] == needle {
+            let new_line = match prev {
+                Some(pp) => hay[pp..p].contains(&b'\n'),
+                None => true,
+            };
+            if new_line {
+                count += 1;
+            }
+            prev = Some(p);
+            i = p + llen;
+        } else {
+            i = p + 1;
         }
-        prev = Some(off);
     }
     count
+}
+
+/// Count the distinct lines containing `pat` (the `&str` entry point; delegates
+/// to the byte scanner so the same SIMD path is exercised everywhere).
+fn count_matching_lines(content: &str, pat: &str) -> usize {
+    count_lines_bytes(content.as_bytes(), pat.as_bytes())
 }
 
 #[inline]
@@ -2866,6 +2941,47 @@ mod tests {
         assert!(!can_fast_count("port", false, true)); // -w
         assert!(!can_fast_count("o\r", false, false)); // CR in pattern
         assert!(!can_fast_count("c\nd", false, false)); // LF in pattern (spans lines)
+    }
+
+    #[test]
+    fn count_lines_bytes_matches_naive_oracle() {
+        // The SIMD scanner must equal "lines containing the substring" for any
+        // input. Deterministic pseudo-random fuzz over a tiny alphabet with lots
+        // of newlines and needle near-misses; needles of length 1..4.
+        fn naive(hay: &str, needle: &str) -> usize {
+            hay.lines().filter(|l| l.contains(needle)).count()
+        }
+        let mut seed = 0x9e3779b97f4a7c15u64;
+        let mut rng = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let alpha = [b'a', b'b', b'\n', b'a', b' ']; // newline-heavy, repetitive
+        for _ in 0..3000 {
+            let len = (rng() % 40) as usize;
+            let hay: Vec<u8> = (0..len)
+                .map(|_| alpha[(rng() % alpha.len() as u64) as usize])
+                .collect();
+            let hay = String::from_utf8(hay).unwrap();
+            for nlen in 1..=4usize {
+                let needle: String = (0..nlen)
+                    .map(|_| [b'a', b'b', b' '][(rng() % 3) as usize] as char)
+                    .collect();
+                assert_eq!(
+                    count_lines_bytes(hay.as_bytes(), needle.as_bytes()),
+                    naive(&hay, &needle),
+                    "hay={hay:?} needle={needle:?}"
+                );
+            }
+        }
+        // A multibyte haystack with an ASCII needle (NEON byte scan must be
+        // UTF-8-agnostic but still correct on byte boundaries).
+        assert_eq!(
+            count_lines_bytes("café\nrésumé x\nplain".as_bytes(), b"x"),
+            1
+        );
     }
 
     #[test]
