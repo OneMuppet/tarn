@@ -85,4 +85,4 @@ tarn check src/server.rs             # 7. verify you left no junk
   with `--color` / `--plain`.
 - **Heuristic, not a parser.** Structure (`outline`/`peek`/`--enclosing`) uses
   extension-aware keyword + indentation heuristics, and `find` is literal
-  substring (not regex). Honest and fast; not semantic.
+  substring by default (`-e`/`--regex` for a regular expression). Honest and fast; not semantic.

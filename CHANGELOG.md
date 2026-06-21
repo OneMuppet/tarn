@@ -68,4 +68,4 @@ The current feature set, ahead of the first published release.
 
 ### Quality
 - Zero crate dependencies (std only). Raw mode via `stty`.
-- Heavily tested (124 tests) and gated by adversarial review; an input fuzz across all commands found and fixed a `.env` data-loss case and tightened exit-code discipline.
+- Heavily tested (150 tests) and gated by adversarial review; an input fuzz across all commands found and fixed a `.env` data-loss case and tightened exit-code discipline.
