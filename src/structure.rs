@@ -182,7 +182,7 @@ fn strip_modifiers(mut t: &str) -> &str {
 fn name_after(rest: &str) -> String {
     rest.trim_start()
         .chars()
-        .take_while(|c| !"({<=:;".contains(*c))
+        .take_while(|c| !"({<=:;,".contains(*c))
         .collect::<String>()
         .trim()
         .to_string()
@@ -247,6 +247,77 @@ fn detect(line: &str, rules: &Rules) -> Option<(String, String)> {
     None
 }
 
+/// Net brace nesting change on a line (`{` +1, `}` -1). Heuristic — counts braces
+/// in strings/comments too, which is fine for the coarse scope tracking it feeds.
+fn brace_delta(line: &str) -> i32 {
+    line.chars().fold(0, |d, c| match c {
+        '{' => d + 1,
+        '}' => d - 1,
+        _ => d,
+    })
+}
+
+/// A JS/TS class member with no leading keyword: `name(args) {`, `async name() {`,
+/// `get x() {`, `*gen() {`, `name<T>(): R {`. Called only for lines directly inside
+/// a class body, which keeps it from matching top-level calls like
+/// `describe('x', () => {`. Arrow callbacks and control statements are excluded.
+fn detect_js_method(line: &str) -> Option<(String, String)> {
+    if !line.trim_end().ends_with('{') || line.contains("=>") {
+        return None;
+    }
+    let mut t = strip_modifiers(line.trim_start());
+    if let Some(r) = t.strip_prefix('*') {
+        t = r.trim_start();
+    }
+    let kind = if let Some(r) = t.strip_prefix("get ") {
+        t = r.trim_start();
+        "get"
+    } else if let Some(r) = t.strip_prefix("set ") {
+        t = r.trim_start();
+        "set"
+    } else {
+        "method"
+    };
+    let name: String = t
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+        .collect();
+    if name.is_empty() {
+        return None;
+    }
+    // After the name (skipping an optional generic list) the next char must be `(`.
+    let mut after = t[name.len()..].trim_start();
+    if let Some(rest) = after.strip_prefix('<') {
+        let mut depth = 1usize;
+        let mut cut = rest.len();
+        for (i, c) in rest.char_indices() {
+            match c {
+                '<' => depth += 1,
+                '>' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        cut = i + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        after = rest[cut..].trim_start();
+    }
+    if !after.starts_with('(') {
+        return None;
+    }
+    const CTRL: &[&str] = &[
+        "if", "for", "while", "switch", "catch", "do", "else", "return", "function", "with",
+        "await", "typeof", "throw", "yield", "new", "super", "void", "delete",
+    ];
+    if CTRL.contains(&name.as_str()) {
+        return None;
+    }
+    Some((kind.to_string(), name))
+}
+
 /// Extent of an indentation-defined block starting at line index `i`.
 fn block_end(lines: &[&str], i: usize) -> usize {
     let base = indent(lines[i]);
@@ -292,6 +363,9 @@ pub fn outline(path: &str, content: &str) -> Vec<Def> {
     // level, or (for code) the line's indentation.
     let mut raw: Vec<(usize, String, String, usize, usize)> = Vec::new(); // (idx,kind,name,level,rank)
     let mut in_fence = false; // markdown: don't read `#` inside ``` / ~~~ code blocks
+    let mut in_import = false; // js: skip multi-line `import { ... }` member lines
+    let mut brace_depth: i32 = 0; // js: net brace nesting, for class-member detection
+    let mut class_depths: Vec<i32> = Vec::new(); // js: body depths of open class/interface scopes
     for (idx, line) in lines.iter().enumerate() {
         if rules.markdown {
             let t = line.trim_start();
@@ -302,14 +376,56 @@ pub fn outline(path: &str, content: &str) -> Vec<Def> {
             if in_fence {
                 continue;
             }
+            if let Some((kind, name)) = detect(line, &rules) {
+                let level = kind
+                    .strip_prefix('h')
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .unwrap_or(0);
+                raw.push((idx, kind, name, level, level));
+            }
+            continue;
         }
+
+        if rules.js {
+            let tr = line.trim_start();
+            // Skip `import` statements so `import { type X }` members aren't read
+            // as `type` definitions.
+            if in_import {
+                if line.contains(" from ") || tr.starts_with('}') {
+                    in_import = false;
+                }
+                brace_depth += brace_delta(line);
+                continue;
+            }
+            if tr.starts_with("import ") || tr.starts_with("import{") || tr == "import" {
+                if !line.contains(" from ") && !line.trim_end().ends_with(';') {
+                    in_import = true;
+                }
+                brace_depth += brace_delta(line);
+                continue;
+            }
+            let start_depth = brace_depth;
+            if let Some((kind, name)) = detect(line, &rules) {
+                if (kind == "class" || kind == "interface") && line.contains('{') {
+                    class_depths.push(start_depth + 1);
+                }
+                raw.push((idx, kind, name, 0, indent(line)));
+            } else if class_depths.last() == Some(&start_depth) {
+                // Directly inside a class body → maybe a keyword-less method.
+                if let Some((kind, name)) = detect_js_method(line) {
+                    raw.push((idx, kind, name, 0, indent(line)));
+                }
+            }
+            brace_depth += brace_delta(line);
+            while matches!(class_depths.last(), Some(&d) if brace_depth < d) {
+                class_depths.pop();
+            }
+            continue;
+        }
+
+        // All other languages: keyword detection, unchanged.
         if let Some((kind, name)) = detect(line, &rules) {
-            let level = kind
-                .strip_prefix('h')
-                .and_then(|n| n.parse::<usize>().ok())
-                .unwrap_or(0);
-            let rank = if level > 0 { level } else { indent(line) };
-            raw.push((idx, kind, name, level, rank));
+            raw.push((idx, kind, name, 0, indent(line)));
         }
     }
 
@@ -528,5 +644,69 @@ def main():
         let defs = outline("x.py", py);
         let a = defs.iter().find(|d| d.name == "a").unwrap();
         assert_eq!((a.line, a.end), (1, 2));
+    }
+
+    const TS: &str = "\
+import {
+  type FileState,
+  helper,
+} from './x';
+
+export class Engine {
+  private count = 0;
+  constructor(opts: Opts) {
+    this.count = 0;
+  }
+  async run(input: string): Promise<void> {
+    if (input) {
+      doThing();
+    }
+  }
+  get size(): number {
+    return this.count;
+  }
+  *items() {
+    yield 1;
+  }
+}
+
+describe('suite', () => {
+  it('works', () => {});
+});
+";
+
+    #[test]
+    fn ts_class_methods_detected() {
+        let defs = outline("a.ts", TS);
+        let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+        assert!(names.contains(&"Engine"), "{names:?}");
+        assert!(names.contains(&"constructor"), "{names:?}");
+        assert!(names.contains(&"run"), "{names:?}");
+        assert!(names.contains(&"size"), "{names:?}"); // get accessor
+        assert!(names.contains(&"items"), "{names:?}"); // generator
+                                                        // methods nest under the class
+        let c = defs.iter().find(|d| d.name == "Engine").unwrap();
+        let m = defs.iter().find(|d| d.name == "run").unwrap();
+        assert!(c.depth < m.depth, "method should nest under class");
+    }
+
+    #[test]
+    fn ts_import_type_members_not_detected() {
+        // `import { type FileState, helper }` members are not definitions.
+        let names: Vec<String> = outline("a.ts", TS).iter().map(|d| d.name.clone()).collect();
+        assert!(!names.iter().any(|n| n.contains("FileState")), "{names:?}");
+        assert!(!names.iter().any(|n| n == "helper"), "{names:?}");
+    }
+
+    #[test]
+    fn ts_no_false_methods_from_control_or_toplevel_calls() {
+        let names: Vec<String> = outline("a.ts", TS).iter().map(|d| d.name.clone()).collect();
+        // control statement inside a method body is not a method
+        assert!(!names.iter().any(|n| n == "if"), "{names:?}");
+        // top-level test-framework calls are not class members
+        assert!(
+            !names.iter().any(|n| n == "describe" || n == "it"),
+            "{names:?}"
+        );
     }
 }
