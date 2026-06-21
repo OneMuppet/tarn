@@ -45,8 +45,8 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd {
         name: "find",
         group: "navigate",
-        usage: "tarn find <path> <pattern> [-i] [-w] [-c] [-l] [--enclosing] [-A/-B/-C N] [--ext rs,toml] [--limit N] [--json] [-- <pattern>]",
-        summary: "Literal substring search across a file or directory; each hit carries file+line, optionally its enclosing definition. Faster than the system grep.",
+        usage: "tarn find <path> <pattern> [-i] [-w] [-e/--regex] [-c] [-l] [--enclosing] [-A/-B/-C N] [--ext rs,toml] [--limit N] [--json] [-- <pattern>]",
+        summary: "Substring search across a file or directory (literal by default; -e/--regex for a regular expression). Each hit carries file+line, optionally its enclosing definition. Faster than the system grep.",
         examples: &[
             "tarn find src/ parse_value --enclosing --json",
             "tarn find src/ port -w -C 2",
@@ -69,7 +69,7 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd {
         name: "replace",
         group: "edit",
-        usage: "tarn replace <file> <N> <text> [--expect T]  |  --match <anchor> <new-line> [--all]  |  --def <name> (new text on stdin)   [--diff [-u/--unified] | --json | --dry-run]",
+        usage: "tarn replace <file> <N|A-B> <text> [--expect T]  |  --match <anchor> <new-line> [--all]  |  --def <name> (new text on stdin)   [--diff [-u/--unified] | --json | --dry-run]",
         summary: "Replace line N (guard with --expect T). Or content-addressed: --match <anchor> replaces the whole line containing <anchor> (unique unless --all). Or structural: --def <name> swaps a whole definition for new text read from stdin.",
         examples: &[
             "tarn replace app.py 27 'PORT = 9090' --expect 'PORT = 8000'",

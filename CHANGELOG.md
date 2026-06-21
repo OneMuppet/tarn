@@ -4,6 +4,13 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.3.0]
+
+### Search & edit (prioritized from real agent-usage data: 1,155 session transcripts)
+- `find -e`/`--regex` — regular-expression search via a built-in, **zero-dependency** Thompson/Pike NFA engine (literals, `.`, `* + ? {n,m}`, `[...]`/`[^...]`, `\d\w\s`, `^ $`, `|`, groups; linear — no catastrophic backtracking; ASCII case-fold with `-i`). Literal substring stays the default. Unsupported syntax (`\b`, POSIX `[[:...:]]`, reversed `{n,m}`) errors loudly rather than matching wrong. Cross-validated against `grep -E`.
+- `replace <file> A-B <text>` — replace a line **range** (text may be multi-line); honors `--expect`/`--diff`/`--dry-run`. Single-line `replace <file> N` unchanged.
+- `outline`/`defs` Tier-1 for TS/TSX — detect class methods, `get`/`set` accessors, generators; stop `import { type X }` members showing up as `type` defs. Other languages unchanged.
+
 ## [0.2.0]
 
 ### Diff output (emit, not just apply)

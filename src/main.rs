@@ -10,6 +10,7 @@ mod envfile;
 mod help;
 mod json;
 mod patch;
+mod regex;
 mod render;
 mod structure;
 mod terminal;
@@ -1424,6 +1425,7 @@ fn cmd_find(args: &[String]) -> u8 {
     let mut ctx_after = 0usize;
     let mut exts: Vec<String> = Vec::new(); // --ext rs,toml → only these extensions
     let mut end_flags = false; // set by `--`: everything after is positional
+    let mut regex_mode = false; // -e/--regex: treat the pattern as a regular expression
 
     let mut i = 0;
     while i < args.len() {
@@ -1438,6 +1440,7 @@ fn cmd_find(args: &[String]) -> u8 {
                 }
                 "-i" | "--ignore-case" => ignore_case = true,
                 "-w" | "--word" => word = true,
+                "-e" | "--regex" => regex_mode = true,
                 "--enclosing" => enclosing = true,
                 "--json" => json = true,
                 "--count" | "-c" => count_only = true,
@@ -1502,6 +1505,17 @@ fn cmd_find(args: &[String]) -> u8 {
         _ => return usage_err("find <path> <pattern> [-i] [--enclosing] [--json]   (-- to search a pattern starting with -)"),
     };
 
+    let re = if regex_mode {
+        match regex::Regex::new(pattern, ignore_case) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                eprintln!("tarn: invalid regex: {e}");
+                return EXIT_USAGE;
+            }
+        }
+    } else {
+        None
+    };
     let mut files = collect_files(path);
     if !exts.is_empty() {
         files.retain(|f| {
@@ -1527,7 +1541,7 @@ fn cmd_find(args: &[String]) -> u8 {
     // each file and count distinct matching lines, fanning ACROSS files over
     // cores for a directory, or splitting a single big file WITHIN itself.
     // Binary / non-UTF-8 files are skipped, same as the read path below.
-    if count_only && can_fast_count(pattern, ignore_case, word) {
+    if count_only && !regex_mode && can_fast_count(pattern, ignore_case, word) {
         let total = if files.len() == 1 {
             scan_count(&files[0], pattern, true).unwrap_or(0)
         } else {
@@ -1585,7 +1599,11 @@ fn cmd_find(args: &[String]) -> u8 {
         };
         let mut file_hit = false;
         for (idx, line) in content.lines().enumerate() {
-            if !line_matches(line, pattern, ignore_case, word) {
+            let hit = match &re {
+                Some(r) => r.is_match(line),
+                None => line_matches(line, pattern, ignore_case, word),
+            };
+            if !hit {
                 continue;
             }
             total += 1;
@@ -2187,24 +2205,36 @@ fn cmd_replace(args: &[String]) -> u8 {
         return commit(file, "replace", &flags, &old, &new);
     }
 
-    // Line-number mode.
-    let (file, n, text) = match (flags.rest.first(), flags.rest.get(1), flags.rest.get(2)) {
-        (Some(f), Some(n), Some(t)) => match n.parse::<usize>() {
-            Ok(n) => (f.as_str(), n, t.as_str()),
-            Err(_) => {
-                return usage_err("replace <file> <N> <text>   (or: --match <anchor> <new-line>)")
-            }
-        },
-        _ => return usage_err("replace <file> <N> <text>   (or: --match <anchor> <new-line>)"),
+    // Line-number mode: a single line `N`, or a line range `A-B` whose lines are
+    // replaced by `text` — which may itself span multiple lines.
+    let (file, spec, text) = match (flags.rest.first(), flags.rest.get(1), flags.rest.get(2)) {
+        (Some(f), Some(s), Some(t)) => (f.as_str(), s.as_str(), t.as_str()),
+        _ => return usage_err("replace <file> <N|A-B> <text>   (or: --match <anchor> <new-line>)"),
+    };
+    let (a, b) = match parse_range(spec) {
+        Some(r) => r,
+        None => {
+            return usage_err("replace <file> <N|A-B> <text>   (or: --match <anchor> <new-line>)")
+        }
     };
     let exp = flags.expect.clone();
-    apply_edit(
-        file,
-        "replace",
-        &flags,
-        |c| check_expect(&exp, textfile::line_at(c, n)),
-        |c| textfile::replace(c, n, text),
-    )
+    if a == b {
+        apply_edit(
+            file,
+            "replace",
+            &flags,
+            |c| check_expect(&exp, textfile::line_at(c, a)),
+            |c| textfile::replace(c, a, text),
+        )
+    } else {
+        apply_edit(
+            file,
+            "replace",
+            &flags,
+            |c| check_expect(&exp, textfile::range_text(c, a, b)),
+            |c| textfile::replace_range(c, a, b, text),
+        )
+    }
 }
 
 /// `insert <file> <after-N> <text> [...]`  (after-N = 0 inserts at the top)
@@ -3223,5 +3253,15 @@ mod tests {
         // Non-overlapping.
         assert_eq!(word_occurrences(b"aa aa aa", b"aa"), 3);
         assert_eq!(word_occurrences(b"nothing here", b"foo"), 0);
+    }
+
+    #[test]
+    fn replace_routes_a_line_range_to_replace_range() {
+        // The new `replace <file> A-B <text>` wiring: parse_range + replace_range.
+        let (a, b) = parse_range("2-4").unwrap();
+        let out = textfile::replace_range("one\ntwo\nthree\nfour\nfive\n", a, b, "A\nB").unwrap();
+        assert_eq!(out, "one\nA\nB\nfive\n");
+        // a bare number still routes to a single-line (n, n).
+        assert_eq!(parse_range("3"), Some((3, 3)));
     }
 }
