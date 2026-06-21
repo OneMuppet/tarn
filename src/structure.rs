@@ -406,7 +406,7 @@ pub fn outline(path: &str, content: &str) -> Vec<Def> {
                 || tr.starts_with("export type{")
                 || tr.starts_with("export *")
             {
-                if !line.contains(" from ") && !line.trim_end().ends_with(';') {
+                if brace_delta(line) > 0 {
                     in_import = true;
                 }
                 brace_depth += brace_delta(line);
@@ -704,6 +704,28 @@ describe('suite', () => {
         let names: Vec<String> = outline("a.ts", TS).iter().map(|d| d.name.clone()).collect();
         assert!(!names.iter().any(|n| n.contains("FileState")), "{names:?}");
         assert!(!names.iter().any(|n| n == "helper"), "{names:?}");
+    }
+
+    #[test]
+    fn ts_single_line_reexport_does_not_swallow_next_def() {
+        // A single-line `export { ... }` (no `from`, no `;`) is a complete
+        // statement — it must NOT start a multi-line skip and eat the next def.
+        let src = "export type { A, B }\n\nfunction f() {\n  return 1;\n}\n";
+        let names: Vec<String> = outline("a.ts", src)
+            .iter()
+            .map(|d| d.name.clone())
+            .collect();
+        assert!(names.contains(&"f".to_string()), "{names:?}");
+        assert!(
+            !names.iter().any(|n| n.contains("A") || n.contains("B")),
+            "{names:?}"
+        );
+        let src2 = "export { x }\nclass K {}\n";
+        let n2: Vec<String> = outline("a.ts", src2)
+            .iter()
+            .map(|d| d.name.clone())
+            .collect();
+        assert!(n2.contains(&"K".to_string()), "{n2:?}");
     }
 
     #[test]
