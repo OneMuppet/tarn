@@ -1,0 +1,18 @@
+{
+  "lang": "rust",
+  "file": "basic.rs",
+  "outline": [
+    {"name": "Server", "kind": "struct", "line": 1, "end": 3},
+    {"name": "Server", "kind": "impl", "line": 5, "end": 9},
+    {"name": "handle", "kind": "fn", "line": 6, "end": 8},
+    {"name": "start", "kind": "fn", "line": 11, "end": 13}
+  ],
+  "defs": [
+    {"q": "handle", "line": 6},
+    {"q": "start", "line": 11}
+  ],
+  "refs": [
+    {"q": "handle", "lines": [12]},
+    {"q": "Server", "lines": [11]}
+  ]
+}

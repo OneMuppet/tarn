@@ -1,0 +1,21 @@
+{
+  "lang": "python",
+  "file": "basic.py",
+  "outline": [
+    {"name": "Handler", "kind": "class", "line": 1, "end": 9},
+    {"name": "__init__", "kind": "def", "line": 2, "end": 3},
+    {"name": "handle", "kind": "def", "line": 5, "end": 6},
+    {"name": "process", "kind": "def", "line": 8, "end": 9},
+    {"name": "main", "kind": "def", "line": 11, "end": 13}
+  ],
+  "defs": [
+    {"q": "handle", "line": 5},
+    {"q": "process", "line": 8},
+    {"q": "main", "line": 11}
+  ],
+  "refs": [
+    {"q": "handle", "lines": [13]},
+    {"q": "process", "lines": [6]},
+    {"q": "Handler", "lines": [12]}
+  ]
+}

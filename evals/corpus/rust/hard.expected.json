@@ -1,0 +1,18 @@
+{
+  "lang": "rust",
+  "file": "hard.rs",
+  "outline": [
+    {"name": "my_macro", "kind": "macro_rules", "line": 1, "end": 3},
+    {"name": "long_signature", "kind": "fn", "line": 5, "end": 10},
+    {"name": "outer", "kind": "fn", "line": 12, "end": 17},
+    {"name": "inner", "kind": "fn", "line": 13, "end": 15}
+  ],
+  "defs": [
+    {"q": "long_signature", "line": 5},
+    {"q": "outer", "line": 12},
+    {"q": "inner", "line": 13}
+  ],
+  "refs": [
+    {"q": "inner", "lines": [16]}
+  ]
+}

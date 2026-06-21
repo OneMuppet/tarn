@@ -20,3 +20,5 @@ jobs:
         run: cargo test
       - name: Release build (must be warning-clean)
         run: RUSTFLAGS="-D warnings" cargo build --release
+      - name: Accuracy eval (structural-nav regression gate)
+        run: python3 evals/run.py

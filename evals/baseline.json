@@ -1,0 +1,42 @@
+{
+  "OVERALL": {
+    "defs.defs_acc": 0.8667,
+    "outline.end_exact": 0.9213,
+    "outline.kind_acc": 1.0,
+    "outline.name_f1": 0.963,
+    "outline.start_exact": 1.0,
+    "refs.refs_f1": 0.981
+  },
+  "_meta": {
+    "cases": {
+      "js": 2,
+      "python": 2,
+      "rust": 2
+    },
+    "total": 6
+  },
+  "js": {
+    "defs.defs_acc": 0.6,
+    "outline.end_exact": 1.0,
+    "outline.kind_acc": 1.0,
+    "outline.name_f1": 0.8889,
+    "outline.start_exact": 1.0,
+    "refs.refs_f1": 0.9429
+  },
+  "python": {
+    "defs.defs_acc": 1.0,
+    "outline.end_exact": 0.8889,
+    "outline.kind_acc": 1.0,
+    "outline.name_f1": 1.0,
+    "outline.start_exact": 1.0,
+    "refs.refs_f1": 1.0
+  },
+  "rust": {
+    "defs.defs_acc": 1.0,
+    "outline.end_exact": 0.875,
+    "outline.kind_acc": 1.0,
+    "outline.name_f1": 1.0,
+    "outline.start_exact": 1.0,
+    "refs.refs_f1": 1.0
+  }
+}

@@ -45,6 +45,9 @@ The current feature set, ahead of the first published release.
 - Meaningful exit codes: `0` ok, `1` not-found, `2` usage, `3` guard (`--expect`) failed (POSIX `0`/`1`/`2` for `diff`).
 - Line-ending (LF/CRLF) and trailing-newline state preserved on every edit.
 
+### Eval / accuracy (structural-nav regression gate)
+- `evals/run.py` — a dependency-free harness (Python stdlib) that drives the real `tarn` binary through `--json` and scores `outline`/`defs`/`refs` against a hand-labeled golden corpus (`evals/corpus/<lang>/`): name precision/recall, kind accuracy, start/end line exactness, go-to-def hit-rate, and refs precision/recall. Prints a per-language scorecard and **gates CI against regression** vs `evals/baseline.json`. Seed corpus (rust/python/js) pins three known heuristic gaps as fix targets: multi-line signatures truncating block ranges, keyword-less methods, and multi-line arrow bindings (which also leak into `refs`). See [`evals/README.md`](evals/README.md).
+
 ### Performance (std-only: `core::arch` SIMD + `mmap` via libc FFI, zero crates)
 - `find -c` memory-maps the file (`mmap`, libc FFI), scans with NEON SIMD on aarch64 (`core::arch` intrinsics, scalar fallback elsewhere), and counts across all cores (`std::thread`). On a 10-core box it is **~1.3× faster than ripgrep** counting a single ~380 MB file (~42 ms vs ~57 ms; figures vary ±~15%), is at parity across many small files (the directory walk now reads each entry's type from readdir instead of stat-ing twice), and is far ahead of the system grep. All zero crate dependencies. `\n` is always a UTF-8 boundary, so chunks count independently and the sum is exact.
 - The structure parse behind `outline`/`defs`/`refs`/`peek` is allocation-free on the hot path (~6× faster than before).

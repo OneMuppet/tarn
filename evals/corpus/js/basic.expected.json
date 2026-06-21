@@ -1,0 +1,20 @@
+{
+  "lang": "js",
+  "file": "basic.ts",
+  "outline": [
+    {"name": "User", "kind": "interface", "line": 1, "end": 3},
+    {"name": "Id", "kind": "type", "line": 5, "end": 5},
+    {"name": "Repo", "kind": "class", "line": 7, "end": 11},
+    {"name": "find", "kind": "function", "line": 8, "end": 10},
+    {"name": "load", "kind": "function", "line": 13, "end": 15}
+  ],
+  "defs": [
+    {"q": "load", "line": 13},
+    {"q": "find", "line": 8}
+  ],
+  "refs": [
+    {"q": "load", "lines": [9]},
+    {"q": "User", "lines": [8, 13]},
+    {"q": "Id", "lines": [8, 13]}
+  ]
+}

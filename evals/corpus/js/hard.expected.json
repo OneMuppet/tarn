@@ -1,0 +1,20 @@
+{
+  "lang": "js",
+  "file": "hard.tsx",
+  "outline": [
+    {"name": "fetchData", "kind": "function", "line": 1, "end": 5},
+    {"name": "add", "kind": "function", "line": 7, "end": 7},
+    {"name": "Color", "kind": "enum", "line": 9, "end": 12},
+    {"name": "useThing", "kind": "function", "line": 14, "end": 17},
+    {"name": "local", "kind": "function", "line": 15, "end": 15}
+  ],
+  "defs": [
+    {"q": "add", "line": 7},
+    {"q": "fetchData", "line": 1},
+    {"q": "useThing", "line": 14}
+  ],
+  "refs": [
+    {"q": "fetchData", "lines": [15]},
+    {"q": "local", "lines": [16]}
+  ]
+}

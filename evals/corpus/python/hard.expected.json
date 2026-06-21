@@ -1,0 +1,19 @@
+{
+  "lang": "python",
+  "file": "hard.py",
+  "outline": [
+    {"name": "decorated", "kind": "def", "line": 4, "end": 5},
+    {"name": "fetch", "kind": "def", "line": 7, "end": 11},
+    {"name": "outer", "kind": "def", "line": 13, "end": 16},
+    {"name": "inner", "kind": "def", "line": 14, "end": 15}
+  ],
+  "defs": [
+    {"q": "decorated", "line": 4},
+    {"q": "fetch", "line": 7},
+    {"q": "outer", "line": 13},
+    {"q": "inner", "line": 14}
+  ],
+  "refs": [
+    {"q": "inner", "lines": [16]}
+  ]
+}
