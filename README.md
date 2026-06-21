@@ -99,6 +99,7 @@ edit the one line — all deterministic and `--json`-chainable.
 | Open a region | `tarn show <file> [--around N \| --block N \| --lines A-B] [--highlight A-B]` |
 | Replace a line/range | `tarn replace <file> <N\|A-B> <text> [--expect T] [--diff\|--dry-run]` (range replaces lines A–B; text may be multi-line) |
 | Replace by content | `tarn replace <file> --match <anchor> <new-line> [--all]` |
+| Regex find/replace | `tarn replace <file> --regex <pat> <repl> [--all]` (per line; `$1`/`${1}` capture backrefs, `$$` = literal `$`) |
 | Insert / delete | `tarn insert <file> <after-N> <text>` · `tarn delete <file> <A-B>` |
 | Edit a whole def | `tarn delete <file> --def <name>` · `… \| tarn replace <file> --def <name>` |
 | Rewrite a file | `… \| tarn write <file>` |

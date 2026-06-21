@@ -2205,6 +2205,48 @@ fn cmd_replace(args: &[String]) -> u8 {
         return commit(file, "replace", &flags, &old, &new);
     }
 
+    // Regex-substitution mode: `replace <file> --regex <pattern> <replacement>
+    // [--all]` — sed-style find/replace per line. `<replacement>` may use $0/$1..
+    // capture backrefs and $$ for a literal $.
+    if flags.regex {
+        let (file, pat, repl) = match (flags.rest.first(), flags.rest.get(1), flags.rest.get(2)) {
+            (Some(f), Some(p), Some(r)) => (f.as_str(), p.as_str(), r.as_str()),
+            _ => return usage_err("replace <file> --regex <pattern> <replacement> [--all]"),
+        };
+        let re = match regex::Regex::new(pat, false) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("tarn: invalid regex: {e}");
+                return EXIT_USAGE;
+            }
+        };
+        let old = match fs::read_to_string(file) {
+            Ok(c) => c,
+            Err(_) => {
+                eprintln!("tarn: cannot read {file}");
+                return EXIT_NOT_FOUND;
+            }
+        };
+        let mut hits = 0usize;
+        let subbed: Vec<String> = old
+            .lines()
+            .map(|l| {
+                let (s, matched) = re.substitute(l, repl, flags.all);
+                if matched {
+                    hits += 1;
+                }
+                s
+            })
+            .collect();
+        if hits == 0 {
+            eprintln!("tarn: no lines match /{pat}/");
+            return EXIT_NOT_FOUND;
+        }
+        // reframe_like re-applies the original's CRLF + final-newline state.
+        let new = reframe_like(&old, subbed.join("\n"), None);
+        return commit(file, "replace", &flags, &old, &new);
+    }
+
     // Line-number mode: a single line `N`, or a line range `A-B` whose lines are
     // replaced by `text` — which may itself span multiple lines.
     let (file, spec, text) = match (flags.rest.first(), flags.rest.get(1), flags.rest.get(2)) {
@@ -2709,6 +2751,7 @@ struct EditFlags {
     dry_run: bool,
     color: bool,
     all: bool,
+    regex: bool,
     expect: Option<String>,
     match_anchor: Option<String>,
     def: Option<String>,
@@ -2825,6 +2868,7 @@ fn base_name(path: &str) -> String {
 fn parse_edit_flags(args: &[String]) -> EditFlags {
     let (mut diff, mut json, mut dry_run, mut all) = (false, false, false, false);
     let mut unified = false;
+    let mut regex = false;
     let mut color_pref: Option<bool> = None;
     let mut expect: Option<String> = None;
     let mut match_anchor: Option<String> = None;
@@ -2843,6 +2887,7 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
             "--json" => json = true,
             "--dry-run" => dry_run = true,
             "--all" => all = true,
+            "-e" | "--regex" => regex = true,
             "-u" | "--unified" => unified = true,
             "--color" => color_pref = Some(true),
             "--plain" => color_pref = Some(false),
@@ -2869,6 +2914,7 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
         color: color_pref.unwrap_or_else(use_color),
         all,
         unified,
+        regex,
         expect,
         match_anchor,
         def,

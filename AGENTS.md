@@ -59,6 +59,7 @@ tarn check src/server.rs             # 7. verify you left no junk
 | Open a region | `tarn show <file> [--around N \| --block N \| --lines A-B] [--highlight A-B]` |
 | Replace a line/range | `tarn replace <file> <N\|A-B> <text> [--expect T] [--diff\|--dry-run]` (A–B replaces a range; multi-line text ok) |
 | Replace by content | `tarn replace <file> --match <anchor> <new-line> [--all]` |
+| Regex find/replace | `tarn replace <file> --regex <pat> <repl> [--all]` (sed-style per line; `$1`/`${1}` backrefs, `$$` literal) |
 | Insert / delete | `tarn insert <file> <after-N> <text>` · `tarn delete <file> <A-B>` |
 | Edit a whole def | `tarn delete <file> --def <name>` · `… \| tarn replace <file> --def <name>` |
 | Rewrite a file | `… \| tarn write <file>` |

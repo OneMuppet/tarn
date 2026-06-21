@@ -58,6 +58,7 @@ enum Ast {
     Plus(Box<Ast>),
     Quest(Box<Ast>),
     Repeat(Box<Ast>, usize, Option<usize>),
+    Group(Box<Ast>, usize),
     StartAnchor,
     EndAnchor,
 }
@@ -65,6 +66,7 @@ enum Ast {
 struct Parser {
     c: Vec<char>,
     i: usize,
+    groups: usize, // count of capturing groups seen (assigns group numbers)
 }
 
 impl Parser {
@@ -197,15 +199,24 @@ impl Parser {
         match self.peek() {
             Some('(') => {
                 self.i += 1;
-                // non-capturing `(?:...)` is accepted and treated like `(...)`
-                if self.peek() == Some('?') && self.c.get(self.i + 1) == Some(&':') {
+                // `(?:...)` is a non-capturing group; `(...)` captures (group 1..).
+                let capturing = !(self.peek() == Some('?') && self.c.get(self.i + 1) == Some(&':'));
+                let idx = if capturing {
+                    self.groups += 1;
+                    self.groups
+                } else {
                     self.i += 2;
-                }
+                    0
+                };
                 let inner = self.parse_alt()?;
                 if !self.eat(')') {
                     return Err("unclosed '('".into());
                 }
-                Ok(inner)
+                Ok(if capturing {
+                    Ast::Group(Box::new(inner), idx)
+                } else {
+                    inner
+                })
             }
             Some('[') => self.parse_class(),
             Some('.') => {
@@ -344,11 +355,14 @@ enum Inst {
     Split(usize, usize),
     AssertStart,
     AssertEnd,
+    Save(usize), // record the current position into capture slot N
 }
 
 fn compile(ast: &Ast) -> Vec<Inst> {
-    let mut p = Vec::new();
+    // Slots 0/1 bracket the whole match; group k uses slots 2k / 2k+1.
+    let mut p = vec![Inst::Save(0)];
     emit(&mut p, ast);
+    p.push(Inst::Save(1));
     p.push(Inst::Match);
     p
 }
@@ -359,6 +373,11 @@ fn emit(p: &mut Vec<Inst>, ast: &Ast) {
         Ast::StartAnchor => p.push(Inst::AssertStart),
         Ast::EndAnchor => p.push(Inst::AssertEnd),
         Ast::Char(m) => p.push(Inst::Char(m.clone())),
+        Ast::Group(inner, idx) => {
+            p.push(Inst::Save(2 * idx));
+            emit(p, inner);
+            p.push(Inst::Save(2 * idx + 1));
+        }
         Ast::Concat(items) => {
             for it in items {
                 emit(p, it);
@@ -444,6 +463,7 @@ fn emit(p: &mut Vec<Inst>, ast: &Ast) {
 pub struct Regex {
     prog: Vec<Inst>,
     ci: bool,
+    ngroups: usize, // number of capturing groups (group 0 = whole match)
 }
 
 impl Regex {
@@ -451,6 +471,7 @@ impl Regex {
         let mut p = Parser {
             c: pattern.chars().collect(),
             i: 0,
+            groups: 0,
         };
         let ast = p.parse_alt()?;
         if p.i != p.c.len() {
@@ -461,7 +482,11 @@ impl Regex {
         if prog.len() > 100_000 {
             return Err("pattern too large".into());
         }
-        Ok(Regex { prog, ci })
+        Ok(Regex {
+            prog,
+            ci,
+            ngroups: p.groups,
+        })
     }
 
     /// True if any substring of `text` matches (unanchored, grep-style).
@@ -530,7 +555,204 @@ impl Regex {
                     self.add(list, seen, gen, pc + 1, pos, n);
                 }
             }
+            // Capture markers are zero-width in the match-only path.
+            Inst::Save(_) => self.add(list, seen, gen, pc + 1, pos, n),
             _ => list.push(pc), // Char or Match
+        }
+    }
+
+    /// Find the leftmost match at or after `start` in `chars`. Returns the capture
+    /// slots (`[0..2]` = whole match; `[2k..2k+2]` = group k), or `None`. This is
+    /// the submatch path for substitution; `is_match` stays the fast no-capture one.
+    fn search(&self, chars: &[char], start: usize) -> Option<Vec<Option<usize>>> {
+        let n = chars.len();
+        let nslots = 2 * (self.ngroups + 1);
+        let mut matched: Option<Vec<Option<usize>>> = None;
+        let mut clist: Vec<(usize, Vec<Option<usize>>)> = Vec::new();
+        {
+            let mut seen = vec![false; self.prog.len()];
+            self.add_sub(&mut clist, &mut seen, 0, start, n, vec![None; nslots]);
+        }
+        for pos in start..=n {
+            if clist.is_empty() {
+                break;
+            }
+            let c = chars.get(pos).copied();
+            let mut nlist: Vec<(usize, Vec<Option<usize>>)> = Vec::new();
+            let mut seen = vec![false; self.prog.len()];
+            let mut i = 0;
+            while i < clist.len() {
+                match &self.prog[clist[i].0] {
+                    Inst::Char(m) => {
+                        if let Some(ch) = c {
+                            if m.matches(ch, self.ci) {
+                                let saves = clist[i].1.clone();
+                                self.add_sub(
+                                    &mut nlist,
+                                    &mut seen,
+                                    clist[i].0 + 1,
+                                    pos + 1,
+                                    n,
+                                    saves,
+                                );
+                            }
+                        }
+                    }
+                    Inst::Match => {
+                        // Highest-priority match wins; lower-priority threads drop.
+                        matched = Some(clist[i].1.clone());
+                        break;
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            // Unanchored: seed a fresh lowest-priority start thread until we match.
+            if matched.is_none() && pos < n {
+                self.add_sub(&mut nlist, &mut seen, 0, pos + 1, n, vec![None; nslots]);
+            }
+            clist = nlist;
+        }
+        matched
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn add_sub(
+        &self,
+        list: &mut Vec<(usize, Vec<Option<usize>>)>,
+        seen: &mut [bool],
+        pc: usize,
+        pos: usize,
+        n: usize,
+        saves: Vec<Option<usize>>,
+    ) {
+        if seen[pc] {
+            return;
+        }
+        seen[pc] = true;
+        match &self.prog[pc] {
+            Inst::Jmp(x) => self.add_sub(list, seen, *x, pos, n, saves),
+            Inst::Split(x, y) => {
+                self.add_sub(list, seen, *x, pos, n, saves.clone());
+                self.add_sub(list, seen, *y, pos, n, saves);
+            }
+            Inst::Save(slot) => {
+                let mut s = saves;
+                if *slot < s.len() {
+                    s[*slot] = Some(pos);
+                }
+                self.add_sub(list, seen, pc + 1, pos, n, s);
+            }
+            Inst::AssertStart => {
+                if pos == 0 {
+                    self.add_sub(list, seen, pc + 1, pos, n, saves);
+                }
+            }
+            Inst::AssertEnd => {
+                if pos == n {
+                    self.add_sub(list, seen, pc + 1, pos, n, saves);
+                }
+            }
+            _ => list.push((pc, saves)), // Char or Match
+        }
+    }
+
+    /// Substitute matches of this regex in `line` with `repl`. `repl` may use
+    /// `$0`/`$1`..`$9`, `${n}` capture backrefs and `$$` for a literal `$`.
+    /// `all=false` replaces only the first match; `all=true` every non-overlapping
+    /// match. Returns the new string and whether anything matched.
+    pub fn substitute(&self, line: &str, repl: &str, all: bool) -> (String, bool) {
+        let chars: Vec<char> = line.chars().collect();
+        let len = chars.len();
+        let mut out = String::new();
+        let mut pos = 0usize;
+        let mut any = false;
+        let mut last_end: Option<usize> = None;
+        while pos <= len {
+            let m = match self.search(&chars, pos) {
+                Some(m) => m,
+                None => break,
+            };
+            let ms = m[0].unwrap_or(pos);
+            let me = m[1].unwrap_or(ms);
+            // Skip a zero-width match sitting exactly where the previous match
+            // ended (Rust-regex semantics — avoids a doubled replacement there).
+            if ms == me && last_end == Some(ms) {
+                if pos < len {
+                    out.push(chars[pos]);
+                    pos += 1;
+                    continue;
+                }
+                break;
+            }
+            out.extend(&chars[pos..ms]);
+            expand(repl, &m, &chars, &mut out);
+            any = true;
+            last_end = Some(me);
+            if me > ms {
+                pos = me;
+            } else {
+                // Empty match: emit one char so we make progress (no infinite loop).
+                if me < len {
+                    out.push(chars[me]);
+                }
+                pos = me + 1;
+            }
+            if !all {
+                break;
+            }
+        }
+        if pos < len {
+            out.extend(&chars[pos..]);
+        }
+        (out, any)
+    }
+}
+
+/// Expand a replacement template, resolving `$0`/`$n`/`${n}` against `saves` and
+/// `$$` to a literal `$`. Unmatched groups expand to empty.
+fn expand(repl: &str, saves: &[Option<usize>], chars: &[char], out: &mut String) {
+    let rc: Vec<char> = repl.chars().collect();
+    let mut i = 0;
+    while i < rc.len() {
+        if rc[i] == '$' && i + 1 < rc.len() {
+            let nxt = rc[i + 1];
+            if nxt == '$' {
+                out.push('$');
+                i += 2;
+                continue;
+            }
+            if nxt == '{' {
+                let mut j = i + 2;
+                let mut num = String::new();
+                while j < rc.len() && rc[j].is_ascii_digit() {
+                    num.push(rc[j]);
+                    j += 1;
+                }
+                if j < rc.len() && rc[j] == '}' && !num.is_empty() {
+                    push_group(&num, saves, chars, out);
+                    i = j + 1;
+                    continue;
+                }
+            }
+            if nxt.is_ascii_digit() {
+                push_group(&nxt.to_string(), saves, chars, out);
+                i += 2;
+                continue;
+            }
+        }
+        out.push(rc[i]);
+        i += 1;
+    }
+}
+
+fn push_group(num: &str, saves: &[Option<usize>], chars: &[char], out: &mut String) {
+    if let Ok(k) = num.parse::<usize>() {
+        let (a, b) = (2 * k, 2 * k + 1);
+        if b < saves.len() {
+            if let (Some(s), Some(e)) = (saves[a], saves[b]) {
+                out.extend(&chars[s..e]);
+            }
         }
     }
 }
@@ -628,5 +850,38 @@ mod tests {
         let re = Regex::new("(a*)*b", false).unwrap();
         assert!(!re.is_match("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaac"));
         assert!(re.is_match("aaaaab"));
+    }
+
+    #[test]
+    fn substitute_first_and_all() {
+        let re = Regex::new("foo", false).unwrap();
+        assert_eq!(
+            re.substitute("foo foo", "X", false),
+            ("X foo".to_string(), true)
+        );
+        assert_eq!(
+            re.substitute("foo foo", "X", true),
+            ("X X".to_string(), true)
+        );
+        assert_eq!(re.substitute("bar", "X", false), ("bar".to_string(), false));
+    }
+
+    #[test]
+    fn substitute_captures_and_dollar() {
+        let re = Regex::new(r"(\w+)=(\w+)", false).unwrap();
+        assert_eq!(re.substitute("a=1", "$2:$1", false).0, "1:a"); // swap via $1/$2
+        let re2 = Regex::new(r"([0-9]+)", false).unwrap();
+        assert_eq!(re2.substitute("n5", "v${1}", false).0, "nv5"); // ${1} capture ref
+        assert_eq!(re2.substitute("n5", "$$$1", false).0, "n$5"); // $$ -> literal $, then $1
+        let re3 = Regex::new("a(x)?b", false).unwrap();
+        assert_eq!(re3.substitute("ab", "[$1]", false).0, "[]"); // unmatched group -> empty
+    }
+
+    #[test]
+    fn substitute_empty_match_terminates() {
+        // An empty-capable pattern with --all must terminate (this test hanging = fail)
+        // and match Rust-regex placement.
+        let re = Regex::new("x*", false).unwrap();
+        assert_eq!(re.substitute("axbx", "-", true).0, "-a-b-");
     }
 }

@@ -4,6 +4,11 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.5.0]
+
+### Edit
+- `replace <file> --regex <pattern> <replacement> [--all]` — sed-style find/replace per line, built on the same zero-dependency NFA as `find -e`. `<replacement>` supports `$0`/`$1`..`$9`/`${n}` capture backrefs and `$$` for a literal `$`; `--all` replaces every match per line (default: first). The engine gained submatch tracking (a Pike VM with capturing groups). Empty-match handling follows Rust-regex semantics.
+
 ## [0.4.0]
 
 ### Hardening (post-0.3.0; rut-gated)
