@@ -397,7 +397,15 @@ pub fn outline(path: &str, content: &str) -> Vec<Def> {
                 brace_depth += brace_delta(line);
                 continue;
             }
-            if tr.starts_with("import ") || tr.starts_with("import{") || tr == "import" {
+            if tr.starts_with("import ")
+                || tr.starts_with("import{")
+                || tr == "import"
+                || tr.starts_with("export {")
+                || tr.starts_with("export{")
+                || tr.starts_with("export type {")
+                || tr.starts_with("export type{")
+                || tr.starts_with("export *")
+            {
                 if !line.contains(" from ") && !line.trim_end().ends_with(';') {
                     in_import = true;
                 }
@@ -696,6 +704,20 @@ describe('suite', () => {
         let names: Vec<String> = outline("a.ts", TS).iter().map(|d| d.name.clone()).collect();
         assert!(!names.iter().any(|n| n.contains("FileState")), "{names:?}");
         assert!(!names.iter().any(|n| n == "helper"), "{names:?}");
+    }
+
+    #[test]
+    fn ts_reexport_members_not_detected() {
+        let src = "export {\n  type Foo,\n  bar,\n} from './x';\n\nexport class K {}\n";
+        let names: Vec<String> = outline("a.ts", src)
+            .iter()
+            .map(|d| d.name.clone())
+            .collect();
+        assert!(names.contains(&"K".to_string()), "{names:?}");
+        assert!(
+            !names.iter().any(|n| n.contains("Foo") || n == "bar"),
+            "{names:?}"
+        );
     }
 
     #[test]

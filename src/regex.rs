@@ -135,6 +135,9 @@ impl Parser {
                         Some(mm) if mm < n => {
                             Err(format!("invalid quantifier: max {mm} < min {n}"))
                         }
+                        _ if n > 1000 || m.is_some_and(|mm| mm > 1000) => {
+                            Err("repeat count too large (max 1000)".into())
+                        }
                         _ => Ok(Ast::Repeat(Box::new(atom), n, m)),
                     }
                 } else {
@@ -616,6 +619,8 @@ mod tests {
         assert!(Regex::new(r"\bword", false).is_err()); // word boundary unsupported -> loud
         assert!(Regex::new("a{3,2}", false).is_err()); // reversed {n,m}
         assert!(Regex::new("[[:space:]]", false).is_err()); // POSIX class unsupported
+        assert!(Regex::new("a{1,5000}", false).is_err()); // repeat count capped
+        assert!(Regex::new("a{2,5}", false).is_ok()); // normal {n,m} still fine
     }
     #[test]
     fn no_catastrophic_backtracking() {
