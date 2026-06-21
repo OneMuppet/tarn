@@ -2,7 +2,7 @@
 # The crates.io package is `tarn-cli` (the name `tarn` is taken by an unrelated
 # crate); the installed command stays `tarn` via the [[bin]] below.
 name = "tarn-cli"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["David Borgenvik"]
 description = "A tiny, zero-dependency terminal editor and structural CLI toolkit for AI agents: navigate, search, edit, and patch code with exact line numbers and meaningful exit codes."
