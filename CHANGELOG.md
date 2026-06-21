@@ -4,6 +4,12 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.4.0]
+
+### Hardening (post-0.3.0; rut-gated)
+- `find -e`: unsupported regex syntax (`\b`, POSIX `[[:...:]]`, reversed `{n,m}`) now errors (exit 2) instead of silently matching wrong; `{n,m}` repeat count capped at 1000.
+- `outline`/`defs`: skip `export { ... } from` re-export lists (no phantom `type` defs) — keyed off brace balance, so a single-line re-export no longer swallows the next definition.
+
 ## [0.3.0]
 
 ### Search & edit (prioritized from real agent-usage data: 1,155 session transcripts)
