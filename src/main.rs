@@ -1408,6 +1408,29 @@ fn cmd_peek(args: &[String]) -> u8 {
     EXIT_OK
 }
 
+/// On a zero-match LITERAL search, nudge toward `-e` when the pattern looks like
+/// a regex the user typed expecting grep-style behavior (alternation, `.*`,
+/// `\d`). Bare `(`/`[`/single `.` are too common in code to flag — only strong
+/// signals. A stderr hint only; never changes the exit code.
+fn regex_hint(pattern: &str, regex_mode: bool) {
+    if regex_mode {
+        return;
+    }
+    let looks_regex = pattern.contains('|')
+        || pattern.contains(".*")
+        || pattern.contains(".+")
+        || pattern.contains("\\d")
+        || pattern.contains("\\w")
+        || pattern.contains("\\s")
+        || pattern.contains("\\b");
+    if looks_regex {
+        eprintln!(
+            "tarn: no matches — the pattern looks like a regex (contains '|', '.*', or '\\d'), \
+             but find is literal by default; add -e/--regex to match it as a regular expression"
+        );
+    }
+}
+
 /// `find <file> <pattern> [-i] [--enclosing] [--json] [--limit N]`
 /// Literal substring search; with --enclosing each hit is tagged with the
 /// definition that contains it. Exit 1 if there are no matches.
@@ -1441,7 +1464,13 @@ fn cmd_find(args: &[String]) -> u8 {
                 }
                 "-i" | "--ignore-case" => ignore_case = true,
                 "-w" | "--word" => word = true,
-                "-e" | "--regex" => regex_mode = true,
+                // `-E`/`--extended-regexp` accepted as grep-compatible aliases for
+                // `-e` (the engine is an extended-regex NFA; unsupported syntax
+                // still errors loudly).
+                "-e" | "--regex" | "-E" | "--extended-regexp" => regex_mode = true,
+                // grep's recursive flags are no-ops: tarn find recurses a
+                // directory by default. Accept them so the reflex doesn't error.
+                "-r" | "-R" | "--recursive" => {}
                 "--enclosing" => enclosing = true,
                 "--json" => json = true,
                 "--count" | "-c" => count_only = true,
@@ -1486,9 +1515,10 @@ fn cmd_find(args: &[String]) -> u8 {
                 // a literal pattern that starts with `-`, put it after `--`.
                 s if s.starts_with('-') => {
                     eprintln!(
-                        "tarn: unknown flag {s} — find already prints line numbers; \
-                         to search a literal pattern starting with '-', put it after `--` \
-                         (e.g. `tarn find <path> -- {s}`)"
+                        "tarn: unknown flag {s} — see `tarn help find` for supported flags \
+                         (line numbers are shown by default; use `-e` for a regex; to search a \
+                         literal pattern starting with '-', put it after `--`, e.g. \
+                         `tarn find <path> -- {s}`)"
                     );
                     return EXIT_USAGE;
                 }
@@ -1570,6 +1600,7 @@ fn cmd_find(args: &[String]) -> u8 {
             count_files_parallel(&files, pattern)
         };
         if total == 0 {
+            regex_hint(pattern, regex_mode);
             return EXIT_NOT_FOUND;
         }
         if json {
@@ -1667,6 +1698,7 @@ fn cmd_find(args: &[String]) -> u8 {
     }
 
     if total == 0 {
+        regex_hint(pattern, regex_mode);
         return EXIT_NOT_FOUND;
     }
 
@@ -3355,6 +3387,25 @@ mod tests {
         assert_eq!(s(&[p, "let", "n"]), EXIT_USAGE);
         // the post-`--` path also errors on an extra positional (no silent overwrite)
         assert_eq!(s(&[p, "--", "-5", "-A"]), EXIT_USAGE);
+        let _ = std::fs::remove_file(&f);
+    }
+
+    #[test]
+    fn find_accepts_grep_compatible_flags() {
+        // Reflexes a grep-trained agent carries over should not error or silently
+        // do the wrong thing: `-E` is a regex alias, `-r` is a no-op (recursion is
+        // the default for a directory).
+        let f = std::env::temp_dir().join("tarn_test_find_grepflags.rs");
+        std::fs::write(&f, "fn handle(k: KeyE) {}\nfn other(v: KeyV) {}\n").unwrap();
+        let p = f.to_str().unwrap();
+        let s =
+            |v: &[&str]| -> u8 { cmd_find(&v.iter().map(|x| x.to_string()).collect::<Vec<_>>()) };
+        // `-E` enables regex → alternation matches both lines
+        assert_eq!(s(&[p, "KeyE|KeyV", "-E"]), EXIT_OK);
+        // `-r` accepted as a no-op (not an unknown-flag error)
+        assert_eq!(s(&[p, "KeyE", "-r"]), EXIT_OK);
+        // without -e, an alternation is literal → no match (the hint goes to stderr)
+        assert_eq!(s(&[p, "KeyE|KeyV"]), EXIT_NOT_FOUND);
         let _ = std::fs::remove_file(&f);
     }
 

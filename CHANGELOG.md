@@ -4,6 +4,14 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.7.2]
+
+### `find` — forgiving of grep reflexes (measured from real agent sessions)
+- `-E` / `--extended-regexp` accepted as aliases for `-e`/`--regex` (grep's extended-regex flag → tarn's regex engine; unsupported syntax still errors loudly).
+- `-r` / `-R` / `--recursive` accepted as no-ops — `find` already recurses a directory, so the grep reflex no longer errors.
+- On a **zero-match literal search** whose pattern contains a strong regex signal (`|`, `.*`, `.+`, `\d`, `\w`, `\s`, `\b`) without `-e`, `find` now prints a stderr hint suggesting `-e` instead of silently reporting "no matches". Exit code unchanged; stdout (incl. `--json`) untouched.
+- Unknown-flag error generalized to point at `tarn help find`.
+
 ## [0.7.1]
 
 ### Fix — `find` no longer silently mis-parses a stray flag as the pattern
