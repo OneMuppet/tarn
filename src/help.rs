@@ -199,6 +199,13 @@ pub const COMMANDS: &[Cmd] = &[
         summary: "Print a file to stdout, optionally with line numbers.",
         examples: &["tarn view .env --numbers"],
     },
+    Cmd {
+        name: "agents",
+        group: "meta",
+        usage: "tarn agents   (alias: guide)",
+        summary: "Print the bundled agent guide (AGENTS.md), compiled into the binary so it always matches the installed version. Pair with `tarn help --json` for the machine-readable manifest.",
+        examples: &["tarn agents"],
+    },
 ];
 
 const EXIT_CODES: &[(&str, &str)] = &[
@@ -216,6 +223,7 @@ fn find_cmd(name: &str) -> Option<&'static Cmd> {
             || (name == "rm" && c.name == "unset")
             || (name == "list" && c.name == "keys")
             || (name == "cat" && c.name == "view")
+            || (name == "guide" && c.name == "agents")
     })
 }
 
@@ -270,10 +278,12 @@ mod tests {
         for name in [
             "outline", "defs", "refs", "tree", "find", "peek", "show", "replace", "insert",
             "delete", "write", "apply", "patch", "batch", "rename", "json", "toml", "yaml",
-            "check", "diff", "get", "set", "unset", "keys", "view",
+            "check", "diff", "get", "set", "unset", "keys", "view", "agents",
         ] {
             assert!(find_cmd(name).is_some(), "manifest missing command: {name}");
         }
+        // aliases dispatch to a manifest command too
+        assert_eq!(find_cmd("guide").unwrap().name, "agents");
     }
 
     #[test]

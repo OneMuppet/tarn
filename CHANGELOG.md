@@ -4,6 +4,11 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.7.0]
+
+### Self-describing — the guide ships in the binary
+- `tarn agents` (alias `guide`) prints the bundled agent guide (`AGENTS.md`), compiled into the binary so it always matches the installed version — a harness can pull current usage with no checkout and no network. Pairs with `tarn help --json` (the machine-readable manifest) so the whole agent-facing surface comes from the binary itself and can't drift from the docs.
+
 ## [0.6.0]
 
 ### Structure — broader language coverage & accurate ranges (rut-gated)

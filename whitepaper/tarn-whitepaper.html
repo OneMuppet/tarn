@@ -124,9 +124,9 @@
   <hr class="rule" style="margin-top:120px">
   <div class="stats">
     <div class="stat"><div class="k">Dependencies</div><div class="v">0</div><div class="d">pure Rust std; mmap, threads & SIMD via core/libc — no crates</div></div>
-    <div class="stat"><div class="k">Commands</div><div class="v">25</div><div class="d">navigate · read · edit · config · verify</div></div>
+    <div class="stat"><div class="k">Commands</div><div class="v">26</div><div class="d">navigate · read · edit · config · verify</div></div>
     <div class="stat"><div class="k">vs ripgrep</div><div class="v">1.3×</div><div class="d">faster on a single 380 MB file (~42 vs ~57 ms); parity on many files</div></div>
-    <div class="stat"><div class="k">Tests</div><div class="v">150</div><div class="d">+ adversarial review on every feature; ASan-clean</div></div>
+    <div class="stat"><div class="k">Tests</div><div class="v">163</div><div class="d">+ adversarial review on every feature; ASan-clean</div></div>
   </div>
 
   <div class="eyebrow copper" style="margin-top:40px">A field guide to a search-and-edit tool that earns an agent's trust</div>
@@ -143,7 +143,7 @@
   <h2 style="margin-top:8px;font-size:40px">What's inside</h2>
   <div class="toc">
     <div class="row"><span class="n">01</span><span class="t">Why agents fight their tools.</span><span class="p">3</span></div>
-    <div class="row"><span class="n">02</span><span class="t">The surface: one binary, 25 commands.</span><span class="p">3</span></div>
+    <div class="row"><span class="n">02</span><span class="t">The surface: one binary, 26 commands.</span><span class="p">3</span></div>
     <div class="row"><span class="n">03</span><span class="t">Speed: at parity with ripgrep, zero deps.</span><span class="p">4</span></div>
     <div class="row"><span class="n">04</span><span class="t">How — mmap, all cores, SIMD, no crates.</span><span class="p">5</span></div>
     <div class="row"><span class="n">05</span><span class="t">An honest negative result: the index.</span><span class="p">6</span></div>
@@ -182,7 +182,7 @@
   <div class="sec" style="margin-top:46px">
     <div><div class="num">02</div><div class="lbl">The surface</div></div>
     <div>
-      <h2>One binary, 25 commands.</h2>
+      <h2>One binary, 26 commands.</h2>
       <div class="intro">Structural, surgical, and self-describing. <code>tarn help --json</code>
       returns the whole manifest — every command, usage, example, and exit code — so an
       agent learns the tool in a single call.</div>

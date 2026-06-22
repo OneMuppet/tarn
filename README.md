@@ -86,7 +86,7 @@ Reading whole files just to find one thing burns context. This loop gives you
 structure cheaply — orient, see a file's shape, jump straight to the symbol,
 edit the one line — all deterministic and `--json`-chainable.
 
-### Command quick-reference (25 commands)
+### Command quick-reference (26 commands)
 
 | Task | Command |
 | --- | --- |
@@ -114,6 +114,7 @@ edit the one line — all deterministic and `--json`-chainable.
 | Hygiene gate | `tarn check <file>` |
 | Diff two files | `tarn diff <a> <b> [-u] [--stat]` (0 same / 1 differ / 2 error; `-u` = unified patch, `--stat` = magnitude) |
 | Inspect / view | `tarn view <file> [--numbers]` |
+| Print the agent guide | `tarn agents` (alias `guide`) — bundled in the binary, always matches the installed version |
 
 ### Exit codes (branch on these)
 
@@ -129,7 +130,7 @@ returns structured data; on edits it returns a result object you can chain.
 
 ## Install
 
-These are live as of **v0.6.0**.
+These are live as of **v0.7.0**.
 
 **Homebrew:**
 
@@ -138,14 +139,14 @@ brew install onemuppet/tap/tarn
 ```
 
 **Prebuilt binary (no Rust toolchain needed)** — from the
-[v0.6.0 release](https://github.com/OneMuppet/tarn/releases/tag/v0.6.0):
+[v0.7.0 release](https://github.com/OneMuppet/tarn/releases/tag/v0.7.0):
 
 ```sh
 # macOS (Apple Silicon)
-curl -L https://github.com/OneMuppet/tarn/releases/download/v0.6.0/tarn-v0.6.0-aarch64-apple-darwin.tar.gz | tar xz
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.7.0/tarn-v0.7.0-aarch64-apple-darwin.tar.gz | tar xz
 
 # Linux (x86_64)
-curl -L https://github.com/OneMuppet/tarn/releases/download/v0.6.0/tarn-v0.6.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.7.0/tarn-v0.7.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
 ```
 
 Then put the extracted `tarn` on your `PATH`.
@@ -463,7 +464,7 @@ real multiplier for an agent is **repeated navigation + batched edits**:
 - The diff renderer trims the common prefix/suffix so a one-line change in a
   40k-line file diffs in ~26 ms instead of ~7 s.
 
-**Quality.** 25 commands, **163 tests**, gated by adversarial review on every
+**Quality.** 26 commands, **163 tests**, gated by adversarial review on every
 feature. The unsafe NEON path is **AddressSanitizer-clean** and the SIMD counter
 is **differential-tested** against a scalar oracle (900+ fuzz cases); its counts
 also match `rg`/`grep` on the benchmark corpus. Zero crate dependencies — std

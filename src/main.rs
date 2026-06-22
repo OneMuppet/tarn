@@ -162,6 +162,7 @@ fn run(args: &[String]) -> u8 {
             EXIT_OK
         }
         "help" => cmd_help(&args[1..]),
+        "agents" | "guide" => cmd_agents(&args[1..]),
         "--version" | "-V" => {
             println!("tarn {VERSION}");
             EXIT_OK
@@ -3005,6 +3006,15 @@ fn cmd_help(args: &[String]) -> u8 {
     }
 }
 
+/// `agents` (alias `guide`) — print the bundled agent guide (AGENTS.md). The
+/// guide is compiled into the binary, so it always matches the installed
+/// version — a harness can pull current usage with no checkout or network.
+fn cmd_agents(_args: &[String]) -> u8 {
+    print!("{}", include_str!("../AGENTS.md"));
+    let _ = io::stdout().flush();
+    EXIT_OK
+}
+
 fn print_usage() {
     println!(
         "tarn {VERSION} — a tiny, understandable terminal editor + scriptable .env tool
@@ -3061,6 +3071,7 @@ USAGE:
     tarn keys  <file>           list keys, one per line (alias: list)
     tarn view  <file>           print the file       (alias: cat) [--numbers]
 
+    tarn agents                 print the bundled agent guide (alias: guide)
     tarn help [command]         focused help for one command
     tarn help --json            machine-readable manifest (for agents)
     tarn --help | -h            tarn --version | -V

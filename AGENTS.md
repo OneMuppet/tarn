@@ -7,7 +7,9 @@ structural, surgical, and gives you exact line numbers and meaningful exit codes
 
 **Discover the whole tool in one call:** `tarn help --json` returns a manifest of
 every command, its usage, examples, and exit codes. `tarn help <command>` prints
-focused help. Build with `cargo build --release`; binary at `target/release/tarn`.
+focused help, and `tarn agents` reprints this guide (it's compiled into the
+binary, so it always matches the installed version — no checkout or network
+needed). Build with `cargo build --release`; binary at `target/release/tarn`.
 
 ## Why tarn instead of the usual tools
 
