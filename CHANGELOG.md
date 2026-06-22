@@ -4,6 +4,11 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.7.1]
+
+### Fix — `find` no longer silently mis-parses a stray flag as the pattern
+- `tarn find <path> <pattern> <unknown-dash-flag>` (e.g. a grep-style `-n`) used to silently take the flag as the search pattern, clobbering the real one and returning the wrong matches (or a false "no matches"). Unknown dash-tokens are now a clear usage error (exit 2) that points at `--` for literal dash-patterns and notes that `find` already prints line numbers. A stray extra positional likewise errors (with a "quote multi-word patterns" hint) instead of silently overwriting the pattern — including on the post-`--` path. Recognized flags and the `--` literal-pattern path are unchanged.
+
 ## [0.7.0]
 
 ### Self-describing — the guide ships in the binary

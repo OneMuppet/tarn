@@ -126,7 +126,7 @@
     <div class="stat"><div class="k">Dependencies</div><div class="v">0</div><div class="d">pure Rust std; mmap, threads & SIMD via core/libc — no crates</div></div>
     <div class="stat"><div class="k">Commands</div><div class="v">26</div><div class="d">navigate · read · edit · config · verify</div></div>
     <div class="stat"><div class="k">vs ripgrep</div><div class="v">1.3×</div><div class="d">faster on a single 380 MB file (~42 vs ~57 ms); parity on many files</div></div>
-    <div class="stat"><div class="k">Tests</div><div class="v">163</div><div class="d">+ adversarial review on every feature; ASan-clean</div></div>
+    <div class="stat"><div class="k">Tests</div><div class="v">164</div><div class="d">+ adversarial review on every feature; ASan-clean</div></div>
   </div>
 
   <div class="eyebrow copper" style="margin-top:40px">A field guide to a search-and-edit tool that earns an agent's trust</div>
@@ -201,7 +201,7 @@
     previews; multi-file <code>apply</code>/<code>patch</code> are atomic with rollback; <code>--json</code> on read &amp; edit
     commands lets one command feed the next. An agent can act without a defensive re-read.</p>
   </div>
-  <div class="foot"><span>tarn · zero dependencies · 163 tests</span><span class="c">github.com/OneMuppet/tarn · 3 / 8</span></div>
+  <div class="foot"><span>tarn · zero dependencies · 164 tests</span><span class="c">github.com/OneMuppet/tarn · 3 / 8</span></div>
 </section>
 
 <!-- ============ 03 SPEED ============ -->
@@ -343,7 +343,7 @@
   <div class="callout">
     <span class="e">What it isn't</span>
     <h3>A useful subset, named as one.</h3>
-    <p>The regex engine is a grep-ish subset, not PCRE — no backreferences, lookaround, or <code>\b</code>. Unsupported syntax errors <i>loudly</i> rather than matching the wrong thing, and literal substring stays the default. Structural <code>outline</code>/<code>defs</code> is heuristic, not a parser — multi-line signatures and keyword-less Java/C#/C/C++ methods are now handled by brace-balanced, string/comment-aware scanning; the residual known gap is C# <code>@"..."</code> verbatim strings. Built from the data, bounded by the truth — zero crates, 163 tests, every claim cashable.</p>
+    <p>The regex engine is a grep-ish subset, not PCRE — no backreferences, lookaround, or <code>\b</code>. Unsupported syntax errors <i>loudly</i> rather than matching the wrong thing, and literal substring stays the default. Structural <code>outline</code>/<code>defs</code> is heuristic, not a parser — multi-line signatures and keyword-less Java/C#/C/C++ methods are now handled by brace-balanced, string/comment-aware scanning; the residual known gap is C# <code>@"..."</code> verbatim strings. Built from the data, bounded by the truth — zero crates, 164 tests, every claim cashable.</p>
   </div>
   <div class="foot"><span>tarn · roadmap by measurement, not hunch</span><span class="c">github.com/OneMuppet/tarn · 7 / 8</span></div>
 </section>
@@ -366,7 +366,7 @@
     benchmark corpus. The unsafe NEON code is AddressSanitizer-clean.</p>
     <p><b>Edits never corrupt.</b> Line endings (LF/CRLF) and final-newline state are preserved on every
     edit; format-preserving config edits keep comments and key order; multi-file batches roll back as a unit.</p>
-    <p><b>163 tests, clippy &amp; fmt clean, CI green.</b> Every benchmark in this paper is reproducible from the
+    <p><b>164 tests, clippy &amp; fmt clean, CI green.</b> Every benchmark in this paper is reproducible from the
     repo. Where a number depended on the test machine, it's labelled. Nothing here is aspirational.</p>
   </div>
 

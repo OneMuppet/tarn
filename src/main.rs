@@ -1480,14 +1480,29 @@ fn cmd_find(args: &[String]) -> u8 {
                         None => return usage_err("find <dir> <pattern> --ext rs,toml"),
                     }
                 }
-                // Once the file is known, the next token is the pattern verbatim
-                // (so patterns like `--json` are searchable; or use `--`).
-                s if s.starts_with('-') && file.is_none() => {
-                    eprintln!("tarn: unknown flag {s}");
+                // An unrecognized dash-token is a misused flag, never silently
+                // taken as the pattern (that would search for the wrong thing,
+                // e.g. a grep-style `-n` clobbering the real pattern). To search
+                // a literal pattern that starts with `-`, put it after `--`.
+                s if s.starts_with('-') => {
+                    eprintln!(
+                        "tarn: unknown flag {s} — find already prints line numbers; \
+                         to search a literal pattern starting with '-', put it after `--` \
+                         (e.g. `tarn find <path> -- {s}`)"
+                    );
                     return EXIT_USAGE;
                 }
                 s if file.is_none() => file = Some(s),
-                s => pattern = Some(s),
+                s if pattern.is_none() => pattern = Some(s),
+                // A third positional is almost always an unquoted multi-word
+                // pattern; don't silently keep the last token.
+                s => {
+                    eprintln!(
+                        "tarn: unexpected extra argument {s:?} — find takes one <path> and one \
+                         <pattern>; quote a multi-word pattern (e.g. `tarn find <path> 'a b'`)"
+                    );
+                    return EXIT_USAGE;
+                }
             }
             i += 1;
             continue;
@@ -1495,8 +1510,14 @@ fn cmd_find(args: &[String]) -> u8 {
         // positional (after `--`)
         if file.is_none() {
             file = Some(a);
-        } else {
+        } else if pattern.is_none() {
             pattern = Some(a);
+        } else {
+            eprintln!(
+                "tarn: unexpected extra argument {a:?} after `--` — find takes one <path> \
+                 and one <pattern>"
+            );
+            return EXIT_USAGE;
         }
         i += 1;
     }
@@ -3310,6 +3331,31 @@ mod tests {
         // Non-overlapping.
         assert_eq!(word_occurrences(b"aa aa aa", b"aa"), 3);
         assert_eq!(word_occurrences(b"nothing here", b"foo"), 0);
+    }
+
+    #[test]
+    fn find_rejects_unknown_dash_flag_instead_of_searching_it() {
+        // Regression: `tarn find <file> <pat> -n` used to silently take `-n` as
+        // the pattern (a grep-ism), searching for the wrong thing and returning
+        // "no matches" when the real pattern was present. It must now be a usage
+        // error, never a silent wrong search.
+        let f = std::env::temp_dir().join("tarn_test_find_dashflag.rs");
+        std::fs::write(&f, "struct X {\n    interior: None,\n}\n").unwrap();
+        let p = f.to_str().unwrap();
+        let s =
+            |v: &[&str]| -> u8 { cmd_find(&v.iter().map(|x| x.to_string()).collect::<Vec<_>>()) };
+        // the real pattern IS present → exit 0 without the stray flag
+        assert_eq!(s(&[p, "interior: None,"]), EXIT_OK);
+        // grep-style -n must NOT clobber the pattern → usage error, not no-match
+        assert_eq!(s(&[p, "interior: None,", "-n"]), EXIT_USAGE);
+        // a literal dash pattern is still reachable via `--`
+        std::fs::write(&f, "let n = -5;\n").unwrap();
+        assert_eq!(s(&[p, "--", "-5"]), EXIT_OK);
+        // an unquoted multi-word pattern (extra positional) errors, not silently drops a word
+        assert_eq!(s(&[p, "let", "n"]), EXIT_USAGE);
+        // the post-`--` path also errors on an extra positional (no silent overwrite)
+        assert_eq!(s(&[p, "--", "-5", "-A"]), EXIT_USAGE);
+        let _ = std::fs::remove_file(&f);
     }
 
     #[test]
