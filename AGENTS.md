@@ -85,5 +85,7 @@ tarn check src/server.rs             # 7. verify you left no junk
 - **Color** is auto-off when output isn't a TTY (so chat output is clean); force
   with `--color` / `--plain`.
 - **Heuristic, not a parser.** Structure (`outline`/`peek`/`--enclosing`) uses
-  extension-aware keyword + indentation heuristics, and `find` is literal
+  extension-aware keyword + brace/indentation heuristics — including keyword-less
+  methods for Java/C#/C/C++ and brace-balanced ranges for multi-line signatures
+  (braces in strings/comments/raw strings are ignored). `find` is literal
   substring by default (`-e`/`--regex` for a regular expression). Honest and fast; not semantic.

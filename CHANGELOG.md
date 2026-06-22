@@ -4,6 +4,13 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.6.0]
+
+### Structure — broader language coverage & accurate ranges (rut-gated)
+- `outline`/`defs`/`peek` now detect **keyword-less methods** for Java, C#, and C/C++ — the `returnType name(...)` members that previously left these languages showing only class/struct shells. Includes constructors, C++ destructors (`~Foo`), out-of-line defs (`Foo::bar`), generic methods (`Get<T>()`), K&R and Allman brace styles, and C/C++ free functions. Detection is scoped to where a definition can actually appear (directly inside a type/namespace/file scope), so multi-line calls and lambdas inside function bodies are not mistaken for methods.
+- **Multi-line signatures** now get correct ranges. Block extent for braced languages follows `{`/`}` balance instead of indentation, so a signature whose `)` returns to base indent no longer truncates the def before its body — fixing `peek`/`delete --def` on wrapped signatures.
+- The brace/paren counter is **code-aware**: braces inside strings, char/byte-char literals (distinguishing Rust lifetimes from `'{'`), line/block comments, and Rust raw strings (`r#"..."#`) are ignored. This also corrects pre-existing range truncation on definitions containing column-0 multi-line string content. Residual known gap: C# `@"..."` verbatim strings.
+
 ## [0.5.0]
 
 ### Edit

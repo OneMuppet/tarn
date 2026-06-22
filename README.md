@@ -3,7 +3,7 @@
 ![tarn](assets/banner.svg)
 
 [![CI](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml/badge.svg)](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml)
-&nbsp;zero dependencies&nbsp;·&nbsp;150 tests
+&nbsp;zero dependencies&nbsp;·&nbsp;163 tests
 
 </div>
 
@@ -129,7 +129,7 @@ returns structured data; on edits it returns a result object you can chain.
 
 ## Install
 
-These are live as of **v0.4.0**.
+These are live as of **v0.6.0**.
 
 **Homebrew:**
 
@@ -138,14 +138,14 @@ brew install onemuppet/tap/tarn
 ```
 
 **Prebuilt binary (no Rust toolchain needed)** — from the
-[v0.4.0 release](https://github.com/OneMuppet/tarn/releases/tag/v0.4.0):
+[v0.6.0 release](https://github.com/OneMuppet/tarn/releases/tag/v0.6.0):
 
 ```sh
 # macOS (Apple Silicon)
-curl -L https://github.com/OneMuppet/tarn/releases/download/v0.4.0/tarn-v0.4.0-aarch64-apple-darwin.tar.gz | tar xz
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.6.0/tarn-v0.6.0-aarch64-apple-darwin.tar.gz | tar xz
 
 # Linux (x86_64)
-curl -L https://github.com/OneMuppet/tarn/releases/download/v0.4.0/tarn-v0.4.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.6.0/tarn-v0.6.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
 ```
 
 Then put the extracted `tarn` on your `PATH`.
@@ -213,12 +213,15 @@ one recursive pass, grouped by file — orient in an unfamiliar codebase without
 opening a thing. `--depth N` limits nesting (`--depth 0` = top-level only).
 
 > **Honest limit — structure is heuristic, not a parser.** tarn has no language
-> parser (zero deps). It uses extension-aware keyword + indentation patterns —
-> Python, Rust, JS/TS, Go, Ruby, PHP, Swift, Kotlin, and class/type-level for
-> Java/C#/C/C++, plus Markdown `#` headings, with a keyword union fallback. That
-> nails the common case; a def whose body holds an unindented multi-line string
-> may report a short end range. And `find` is **literal substring** (`-i` = ASCII
-> case-insensitive); pass `-e`/`--regex` for a regular expression.
+> parser (zero deps). It uses extension-aware keyword + brace/indentation patterns —
+> Python, Rust, JS/TS, Go, Ruby, PHP, Swift, Kotlin, and Java/C#/C/C++ (including
+> their keyword-less `returnType name(...)` methods, constructors, and C++
+> destructors), plus Markdown `#` headings, with a keyword union fallback. For
+> braced languages it tracks `{`/`}` balance (ignoring braces in strings, char
+> literals, comments, and Rust raw strings), so multi-line signatures report their
+> full body range. Residual gaps: C# `@"..."` verbatim strings, and Python/Ruby
+> bodies with unindented multi-line content. And `find` is **literal substring**
+> (`-i` = ASCII case-insensitive); pass `-e`/`--regex` for a regular expression.
 
 ## Open & edit a document (for AI harnesses)
 
@@ -460,7 +463,7 @@ real multiplier for an agent is **repeated navigation + batched edits**:
 - The diff renderer trims the common prefix/suffix so a one-line change in a
   40k-line file diffs in ~26 ms instead of ~7 s.
 
-**Quality.** 25 commands, **150 tests**, gated by adversarial review on every
+**Quality.** 25 commands, **163 tests**, gated by adversarial review on every
 feature. The unsafe NEON path is **AddressSanitizer-clean** and the SIMD counter
 is **differential-tested** against a scalar oracle (900+ fuzz cases); its counts
 also match `rg`/`grep` on the benchmark corpus. Zero crate dependencies — std
