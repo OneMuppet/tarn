@@ -22,7 +22,9 @@ needed). Build with `cargo build --release`; binary at `target/release/tarn`.
   far faster than the system grep, and — counting (`-c`) a single large file —
   ~1.3× faster than ripgrep (and at parity across many small files), via mmap + NEON SIMD
   + counting across all cores (all `core::arch`/`std`, still zero crates; see
-  the README's Performance section).
+  the README's Performance section). To search by FILE NAME (not contents), use
+  `tarn locate <glob>` (like `find -name`, vendor-aware): `tarn locate '*.env'`,
+  `tarn locate '**/*.test.ts' src/`.
 - **Edits are surgical and guarded.** Line-addressed, never reflow untouched lines
   (CRLF preserved), and `--expect` refuses to edit if the target changed (exit 3) —
   so you don't clobber the wrong line after numbers drift, and you don't need a

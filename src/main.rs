@@ -179,6 +179,7 @@ fn run(args: &[String]) -> u8 {
         "refs" => cmd_refs(&args[1..]),
         "tree" => cmd_tree(&args[1..]),
         "find" => cmd_find(&args[1..]),
+        "locate" => cmd_locate(&args[1..]),
         "check" => cmd_check(&args[1..]),
         "diff" => cmd_diff(&args[1..]),
         "replace" => cmd_replace(&args[1..]),
@@ -1403,6 +1404,151 @@ fn cmd_peek(args: &[String]) -> u8 {
                 color_pref.unwrap_or_else(use_color)
             )
         );
+    }
+    let _ = io::stdout().flush();
+    EXIT_OK
+}
+
+/// Translate a shell glob into an anchored regex for the built-in engine:
+/// `*` → any run within a path segment, `**` → across `/`, `?` → one non-`/`
+/// char; every other character is literal (regex metacharacters escaped).
+fn glob_to_regex(glob: &str) -> String {
+    let mut re = String::from("^");
+    let mut chars = glob.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '*' => {
+                if chars.peek() == Some(&'*') {
+                    chars.next();
+                    re.push_str(".*"); // `**` crosses directory separators
+                } else {
+                    re.push_str("[^/]*");
+                }
+            }
+            '?' => re.push_str("[^/]"),
+            '.' | '+' | '(' | ')' | '|' | '^' | '$' | '{' | '}' | '[' | ']' | '\\' => {
+                re.push('\\');
+                re.push(c);
+            }
+            _ => re.push(c),
+        }
+    }
+    re.push('$');
+    re
+}
+
+/// `locate <glob> [path] [-i] [--limit N] [--json]` — find files by NAME, the
+/// gap content search doesn't fill (like `find -name`). The glob matches the
+/// basename when it has no `/`, else the path relative to <path> (default `.`).
+/// Vendor dirs / dotfiles / symlinks are skipped (same walk as `find`).
+fn cmd_locate(args: &[String]) -> u8 {
+    let mut pattern: Option<&str> = None;
+    let mut base: Option<&str> = None;
+    let mut ignore_case = false;
+    let mut json = false;
+    let mut limit = 200usize;
+    let mut end_flags = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        let a = args[i].as_str();
+        if !end_flags {
+            match a {
+                "--" => {
+                    end_flags = true;
+                    i += 1;
+                    continue;
+                }
+                "-i" | "--ignore-case" => ignore_case = true,
+                "--json" => json = true,
+                "--limit" => match next_usize(args, &mut i) {
+                    Some(n) => limit = n,
+                    None => return usage_err("locate <glob> [path] --limit N"),
+                },
+                s if s.starts_with('-') => {
+                    eprintln!(
+                        "tarn: unknown flag {s} — see `tarn help locate` (use `--` for a \
+                         literal glob starting with '-')"
+                    );
+                    return EXIT_USAGE;
+                }
+                s if pattern.is_none() => pattern = Some(s),
+                s if base.is_none() => base = Some(s),
+                s => {
+                    eprintln!(
+                        "tarn: unexpected extra argument {s:?} — locate takes a <glob> and an \
+                         optional [path]"
+                    );
+                    return EXIT_USAGE;
+                }
+            }
+            i += 1;
+            continue;
+        }
+        // positional (after `--`)
+        if pattern.is_none() {
+            pattern = Some(a);
+        } else if base.is_none() {
+            base = Some(a);
+        } else {
+            eprintln!("tarn: unexpected extra argument {a:?} after `--`");
+            return EXIT_USAGE;
+        }
+        i += 1;
+    }
+
+    let pattern = match pattern {
+        Some(p) => p,
+        None => return usage_err("locate <glob> [path]   (e.g. tarn locate '*.env')"),
+    };
+    let base = base.unwrap_or(".");
+    let on_path = pattern.contains('/');
+    let re = match regex::Regex::new(&glob_to_regex(pattern), ignore_case) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("tarn: invalid glob: {e}");
+            return EXIT_USAGE;
+        }
+    };
+
+    let files = collect_files(base);
+    if files.is_empty() {
+        eprintln!("tarn: no readable files at {base}");
+        return EXIT_NOT_FOUND;
+    }
+    let mut hits: Vec<String> = Vec::new();
+    for f in &files {
+        let target = if on_path {
+            f.strip_prefix(base)
+                .unwrap_or(f)
+                .to_string_lossy()
+                .to_string()
+        } else {
+            f.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default()
+        };
+        if re.is_match(&target) {
+            if hits.len() >= limit {
+                break; // checked before push so --limit 0 yields zero, not one
+            }
+            hits.push(f.to_string_lossy().to_string());
+        }
+    }
+    if hits.is_empty() {
+        return EXIT_NOT_FOUND;
+    }
+    if json {
+        let items: Vec<String> = hits.iter().map(|h| render::jstr(h)).collect();
+        println!(
+            "{{\"glob\":{},\"files\":[{}]}}",
+            render::jstr(pattern),
+            items.join(",")
+        );
+    } else {
+        for h in &hits {
+            println!("{h}");
+        }
     }
     let _ = io::stdout().flush();
     EXIT_OK
@@ -3087,6 +3233,8 @@ USAGE:
         -c/--count (just the number) | -l/--files (just filenames) | --ext rs,toml
         -C/-B/-A N  context lines (around / before / after each hit)
         --  <text>  search a pattern that starts with a dash
+    tarn locate  <glob> [path]  find files by NAME (like find -name): '*.env', '**/*.ts'
+        -i | --limit N | --json   ('*'/'?' stay in a segment, '**' crosses dirs)
     tarn check   <file>         file-hygiene gate (0 clean / 1 issues)  [--json]
     tarn diff    <a> <b>        show how file a differs from b (0 same/1 differ)
 
@@ -3407,6 +3555,32 @@ mod tests {
         // without -e, an alternation is literal → no match (the hint goes to stderr)
         assert_eq!(s(&[p, "KeyE|KeyV"]), EXIT_NOT_FOUND);
         let _ = std::fs::remove_file(&f);
+    }
+
+    #[test]
+    fn glob_to_regex_translates() {
+        assert_eq!(glob_to_regex("*.env"), "^[^/]*\\.env$");
+        assert_eq!(glob_to_regex("**/x.rs"), "^.*/x\\.rs$");
+        assert_eq!(glob_to_regex("a?b"), "^a[^/]b$");
+    }
+
+    #[test]
+    fn locate_finds_files_by_name() {
+        let dir = std::env::temp_dir().join("tarn_test_locate_42");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("a.env"), "").unwrap();
+        std::fs::write(dir.join("b.txt"), "").unwrap();
+        std::fs::write(dir.join("sub").join("c.env"), "").unwrap();
+        let d = dir.to_str().unwrap();
+        let s =
+            |v: &[&str]| -> u8 { cmd_locate(&v.iter().map(|x| x.to_string()).collect::<Vec<_>>()) };
+        assert_eq!(s(&["*.env", d]), EXIT_OK); // basename glob, any depth
+        assert_eq!(s(&["b.txt", d]), EXIT_OK); // exact name
+        assert_eq!(s(&["*.zzz", d]), EXIT_NOT_FOUND); // no match
+        assert_eq!(s(&["**/c.env", d]), EXIT_OK); // path glob crosses dirs
+        assert_eq!(s(&["*.env", d, "-name"]), EXIT_USAGE); // grep-ism errors
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

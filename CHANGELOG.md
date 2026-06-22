@@ -4,6 +4,11 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.8.0]
+
+### Navigate — `locate`: find files by name
+- `tarn locate <glob> [path] [-i] [--limit N] [--json]` — search for files by **name**, the gap content search (`grep`/`tarn find`) never filled, equivalent to `find -name` but vendor-aware (skips `node_modules`/`target`/dotfiles/symlinks, same walk as `find`). The glob matches the basename when it has no `/`, else the path relative to `[path]` (default `.`); `*`/`?` stay within a path segment, `**` crosses directories. Built on the existing zero-dependency regex engine (glob → anchored regex).
+
 ## [0.7.2]
 
 ### `find` — forgiving of grep reflexes (measured from real agent sessions)

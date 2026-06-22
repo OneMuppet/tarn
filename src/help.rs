@@ -53,6 +53,13 @@ pub const COMMANDS: &[Cmd] = &[
         ],
     },
     Cmd {
+        name: "locate",
+        group: "navigate",
+        usage: "tarn locate <glob> [path] [-i] [--limit N] [--json]",
+        summary: "Find files by NAME (the gap content search doesn't fill — like `find -name`). Glob matches the basename when it has no `/`, else the path relative to [path] (default .). `*`/`?` stay within a segment, `**` crosses directories (note: `**/x` needs a directory segment — for a top-level file too, use the bare name or `*`). Skips vendor dirs/dotfiles/symlinks.",
+        examples: &["tarn locate '*.env'", "tarn locate '**/*.test.ts' src/"],
+    },
+    Cmd {
         name: "peek",
         group: "navigate",
         usage: "tarn peek <file> <name> [--json]",
@@ -278,7 +285,7 @@ mod tests {
         for name in [
             "outline", "defs", "refs", "tree", "find", "peek", "show", "replace", "insert",
             "delete", "write", "apply", "patch", "batch", "rename", "json", "toml", "yaml",
-            "check", "diff", "get", "set", "unset", "keys", "view", "agents",
+            "check", "diff", "get", "set", "unset", "keys", "view", "agents", "locate",
         ] {
             assert!(find_cmd(name).is_some(), "manifest missing command: {name}");
         }
