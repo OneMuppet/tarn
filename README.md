@@ -3,7 +3,7 @@
 ![tarn](assets/banner.svg)
 
 [![CI](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml/badge.svg)](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml)
-&nbsp;zero dependencies&nbsp;·&nbsp;167 tests
+&nbsp;zero dependencies&nbsp;·&nbsp;168 tests
 
 </div>
 
@@ -131,7 +131,7 @@ returns structured data; on edits it returns a result object you can chain.
 
 ## Install
 
-These are live as of **v0.8.0**.
+These are live as of **v0.8.1**.
 
 **Homebrew:**
 
@@ -140,14 +140,14 @@ brew install onemuppet/tap/tarn
 ```
 
 **Prebuilt binary (no Rust toolchain needed)** — from the
-[v0.8.0 release](https://github.com/OneMuppet/tarn/releases/tag/v0.8.0):
+[v0.8.1 release](https://github.com/OneMuppet/tarn/releases/tag/v0.8.1):
 
 ```sh
 # macOS (Apple Silicon)
-curl -L https://github.com/OneMuppet/tarn/releases/download/v0.8.0/tarn-v0.8.0-aarch64-apple-darwin.tar.gz | tar xz
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.8.1/tarn-v0.8.1-aarch64-apple-darwin.tar.gz | tar xz
 
 # Linux (x86_64)
-curl -L https://github.com/OneMuppet/tarn/releases/download/v0.8.0/tarn-v0.8.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.8.1/tarn-v0.8.1-x86_64-unknown-linux-gnu.tar.gz | tar xz
 ```
 
 Then put the extracted `tarn` on your `PATH`.
@@ -465,7 +465,7 @@ real multiplier for an agent is **repeated navigation + batched edits**:
 - The diff renderer trims the common prefix/suffix so a one-line change in a
   40k-line file diffs in ~26 ms instead of ~7 s.
 
-**Quality.** 27 commands, **167 tests**, gated by adversarial review on every
+**Quality.** 27 commands, **168 tests**, gated by adversarial review on every
 feature. The unsafe NEON path is **AddressSanitizer-clean** and the SIMD counter
 is **differential-tested** against a scalar oracle (900+ fuzz cases); its counts
 also match `rg`/`grep` on the benchmark corpus. Zero crate dependencies — std

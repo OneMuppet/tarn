@@ -417,7 +417,28 @@ fn cmd_show(args: &[String]) -> u8 {
             },
             "--head" => head = Some(next_usize_opt(args, &mut i).unwrap_or(20)),
             "--tail" => tail = Some(next_usize_opt(args, &mut i).unwrap_or(20)),
-            s if !s.starts_with("--") => file = Some(s),
+            s if !s.starts_with("--") => {
+                if file.is_none() {
+                    file = Some(s);
+                } else if lines.is_none() {
+                    // A bare line spec after the file (the sed `Np` / `A,Bp`
+                    // reflex): `show file 5` or `show file 5-9` ≡ `--lines`.
+                    // Don't silently overwrite the file with a second positional.
+                    match parse_range(s) {
+                        Some((a, b)) if a <= b => lines = Some((a, b)),
+                        _ => {
+                            eprintln!(
+                                "tarn: unexpected argument {s:?} — show takes <file> then an \
+                                 optional line spec (N or A-B), or --lines/--around/--head/--tail"
+                            );
+                            return EXIT_USAGE;
+                        }
+                    }
+                } else {
+                    eprintln!("tarn: unexpected extra argument {s:?}");
+                    return EXIT_USAGE;
+                }
+            }
             other => {
                 eprintln!("tarn: unknown flag {other}");
                 return EXIT_USAGE;
@@ -3554,6 +3575,23 @@ mod tests {
         assert_eq!(s(&[p, "KeyE", "-r"]), EXIT_OK);
         // without -e, an alternation is literal → no match (the hint goes to stderr)
         assert_eq!(s(&[p, "KeyE|KeyV"]), EXIT_NOT_FOUND);
+        let _ = std::fs::remove_file(&f);
+    }
+
+    #[test]
+    fn show_accepts_bare_line_spec() {
+        // sed `Np`/`A,Bp` reflex: `show file N` / `file A-B` work as `--lines`,
+        // and a second positional no longer silently overwrites the file.
+        let f = std::env::temp_dir().join("tarn_test_show_linespec.txt");
+        std::fs::write(&f, "a\nb\nc\nd\n").unwrap();
+        let p = f.to_str().unwrap();
+        let s =
+            |v: &[&str]| -> u8 { cmd_show(&v.iter().map(|x| x.to_string()).collect::<Vec<_>>()) };
+        assert_eq!(s(&[p]), EXIT_OK); // file only
+        assert_eq!(s(&[p, "2"]), EXIT_OK); // bare line
+        assert_eq!(s(&[p, "2-3"]), EXIT_OK); // bare range
+        assert_eq!(s(&[p, "--lines", "1"]), EXIT_OK); // explicit form still works
+        assert_eq!(s(&[p, "notaspec"]), EXIT_USAGE); // garbage 2nd positional errors
         let _ = std::fs::remove_file(&f);
     }
 

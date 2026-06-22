@@ -4,6 +4,11 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.8.1]
+
+### `show` — accept a bare line spec (the sed `Np` reflex)
+- `tarn show <file> N` and `tarn show <file> A-B` now work as `--lines N` / `--lines A-B` — serving the `sed -n 'Np'` / `'A,Bp'` reflex directly. Previously a second positional silently overwrote the file path (so `show file 5` tried to read a file named `5`); a non-line-spec second positional now errors clearly instead.
+
 ## [0.8.0]
 
 ### Navigate — `locate`: find files by name
