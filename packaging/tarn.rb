@@ -10,26 +10,26 @@
 class Tarn < Formula
   desc "Tiny terminal editor and structural CLI toolkit built for AI agents"
   homepage "https://github.com/OneMuppet/tarn"
-  version "0.5.0"
+  version "0.6.0"
   license "MIT"
   head "https://github.com/OneMuppet/tarn.git", branch: "main"
 
   on_macos do
     on_arm do
-      url "https://github.com/OneMuppet/tarn/releases/download/v0.5.0/tarn-v0.5.0-aarch64-apple-darwin.tar.gz"
-      sha256 "4bd35de32d3bc69ad320b88fce3240ff1a679a3c468b180dfdfc10705a5adc3a"
+      url "https://github.com/OneMuppet/tarn/releases/download/v0.6.0/tarn-v0.6.0-aarch64-apple-darwin.tar.gz"
+      sha256 "3fc231075965081a52d4273d97884af48ce17c5742088d0a80804f7d223ec8d7"
     end
     on_intel do
       # No prebuilt Intel-mac binary — build from the tagged source.
-      url "https://github.com/OneMuppet/tarn/archive/refs/tags/v0.5.0.tar.gz"
-      sha256 "990bc6e6f93dbba2cf4f1d924563a96ccada5715b0d605562a03c3eb803e4cc0"
+      url "https://github.com/OneMuppet/tarn/archive/refs/tags/v0.6.0.tar.gz"
+      sha256 "5a21ae80e915ead91d83a944804877ccd09671be5c22aeab1e796c3985da58d9"
       depends_on "rust" => :build
     end
   end
 
   on_linux do
-    url "https://github.com/OneMuppet/tarn/releases/download/v0.5.0/tarn-v0.5.0-x86_64-unknown-linux-gnu.tar.gz"
-    sha256 "15071d857de8b5acef4e5ed2b9ab638ddc7116a6acccb6479ed9618be417902a"
+    url "https://github.com/OneMuppet/tarn/releases/download/v0.6.0/tarn-v0.6.0-x86_64-unknown-linux-gnu.tar.gz"
+    sha256 "2e9c9fe488c5874c19aa1c0f5e2598ab6d1bc48452e71c12852e6c4f54a2615b"
   end
 
   def install
