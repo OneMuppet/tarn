@@ -10,32 +10,32 @@
 class Tarn < Formula
   desc "Tiny terminal editor and structural CLI toolkit built for AI agents"
   homepage "https://github.com/OneMuppet/tarn"
-  version "0.9.0"
+  version "0.9.1"
   license "MIT"
   head "https://github.com/OneMuppet/tarn.git", branch: "main"
 
   on_macos do
     on_arm do
-      url "https://github.com/OneMuppet/tarn/releases/download/v0.9.0/tarn-v0.9.0-aarch64-apple-darwin.tar.gz"
-      sha256 "646afffc07a3dd639e7a71d579666f7872f7ad247d6eee6271dd9d51f450012e"
+      url "https://github.com/OneMuppet/tarn/releases/download/v0.9.1/tarn-v0.9.1-aarch64-apple-darwin.tar.gz"
+      sha256 "c8f3f9e186b912e27f3c434a5a64eca4acaacc7ffad3ef789248a6ebb1952347"
     end
     on_intel do
       # No prebuilt Intel-mac binary — build from the tagged source.
-      url "https://github.com/OneMuppet/tarn/archive/refs/tags/v0.9.0.tar.gz"
-      sha256 "70d32eb68031789ae96a1680db2d58b5f05d18975673632d81307b69eb6755d7"
+      url "https://github.com/OneMuppet/tarn/archive/refs/tags/v0.9.1.tar.gz"
+      sha256 "bb45b13a6feffe46707e0c6077cc23ab9f466356eb02987aa5cb379d9b9c0480"
       depends_on "rust" => :build
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/OneMuppet/tarn/releases/download/v0.9.0/tarn-v0.9.0-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "9e45868eaf6b74f40147c566dcf424c1be244c2613c46fea0630c3b1615cbe0c"
+      url "https://github.com/OneMuppet/tarn/releases/download/v0.9.1/tarn-v0.9.1-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "723b64e30d9fae736b9c1179f9d657f9b5d5dcfdbfddda6134816192e2556baf"
     end
     on_arm do
-      # arm64 Linux binaries ship from v0.9.0 (cloud sandboxes / ARM CI / Graviton).
-      url "https://github.com/OneMuppet/tarn/releases/download/v0.9.0/tarn-v0.9.0-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "78947b82be3e1bde39be582e89650eae794973483471f10316c7d39d8a4864b4"
+      # arm64 Linux binaries ship from v0.9.1 (cloud sandboxes / ARM CI / Graviton).
+      url "https://github.com/OneMuppet/tarn/releases/download/v0.9.1/tarn-v0.9.1-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "60b059f4775bd6beb0b73831000b2dd9a807c1927ec1d0066ef4d048db8903da"
     end
   end
 
