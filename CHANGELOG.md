@@ -4,6 +4,12 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.9.1]
+
+### `find` — multi-path search & per-file counts (measured from live agent sessions)
+- `tarn find <path>... <pattern>` — search **several files/directories in one call** (pattern goes LAST when more than two positionals are given; every leading positional must exist on disk, so an unquoted multi-word pattern still errors instead of silently part-searching). Driven by the most common surviving grep in real sessions: `grep -rn pat dirA/ dirB/ dirC/`.
+- `-c -l` together now prints **per-file counts** (`path:count`), only for files with ≥1 match — the observed `grep -c pat f1 f2 … | grep -v ':0'` loop becomes one call, and *empty output + exit 1 is the "all clean" answer*. Works with `-e` regex, `-i`, `-w`; uses the mmap/SIMD fast path per file for literal patterns.
+
 ## [0.9.0]
 
 ### `tarn mcp` — first-class tools for any MCP harness (rut-gated)

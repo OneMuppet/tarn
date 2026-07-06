@@ -1604,8 +1604,7 @@ fn regex_hint(pattern: &str, regex_mode: bool) {
 /// Literal substring search; with --enclosing each hit is tagged with the
 /// definition that contains it. Exit 1 if there are no matches.
 fn cmd_find(args: &[String]) -> u8 {
-    let mut file: Option<&str> = None;
-    let mut pattern: Option<&str> = None;
+    let mut pos: Vec<&str> = Vec::new(); // positionals: <path>... <pattern>
     let mut ignore_case = false;
     let mut enclosing = false;
     let mut json = false;
@@ -1691,40 +1690,38 @@ fn cmd_find(args: &[String]) -> u8 {
                     );
                     return EXIT_USAGE;
                 }
-                s if file.is_none() => file = Some(s),
-                s if pattern.is_none() => pattern = Some(s),
-                // A third positional is almost always an unquoted multi-word
-                // pattern; don't silently keep the last token.
-                s => {
-                    eprintln!(
-                        "tarn: unexpected extra argument {s:?} — find takes one <path> and one \
-                         <pattern>; quote a multi-word pattern (e.g. `tarn find <path> 'a b'`)"
-                    );
-                    return EXIT_USAGE;
-                }
+                s => pos.push(s),
             }
             i += 1;
             continue;
         }
         // positional (after `--`)
-        if file.is_none() {
-            file = Some(a);
-        } else if pattern.is_none() {
-            pattern = Some(a);
-        } else {
-            eprintln!(
-                "tarn: unexpected extra argument {a:?} after `--` — find takes one <path> \
-                 and one <pattern>"
-            );
-            return EXIT_USAGE;
-        }
+        pos.push(a);
         i += 1;
     }
 
-    let (path, pattern) = match (file, pattern) {
-        (Some(f), Some(p)) => (f, p),
-        _ => return usage_err("find <path> <pattern> [-i] [--enclosing] [--json]   (-- to search a pattern starting with -)"),
+    // Positional shape: `<path> <pattern>` (the common case), or — since real
+    // agent usage constantly greps several dirs at once — `<path>... <pattern>`
+    // with the pattern LAST. To keep the anti-silent-wrong guarantee (an
+    // unquoted multi-word pattern must ERROR, not partially search), every
+    // leading positional in the multi-path form must actually exist on disk.
+    let (paths, pattern): (Vec<&str>, &str) = match pos.len() {
+        0 | 1 => return usage_err("find <path>... <pattern> [-i] [--enclosing] [--json]   (-- to search a pattern starting with -)"),
+        2 => (vec![pos[0]], pos[1]),
+        n => {
+            let (ps, pat) = (&pos[..n - 1], pos[n - 1]);
+            if let Some(bad) = ps.iter().find(|p| !PathBuf::from(p).exists()) {
+                eprintln!(
+                    "tarn: {bad:?} is not a file or directory — with multiple paths the LAST \
+                     argument is the pattern (`tarn find <path>... <pattern>`); quote a \
+                     multi-word pattern (e.g. `tarn find <path> 'a b'`)"
+                );
+                return EXIT_USAGE;
+            }
+            (ps.to_vec(), pat)
+        }
     };
+    let path = paths[0]; // primary path, for messages
 
     let re = if regex_mode {
         match regex::Regex::new(pattern, ignore_case) {
@@ -1737,7 +1734,12 @@ fn cmd_find(args: &[String]) -> u8 {
     } else {
         None
     };
-    let mut files = collect_files(path);
+    let mut files: Vec<PathBuf> = paths.iter().flat_map(|p| collect_files(p)).collect();
+    if paths.len() > 1 {
+        // overlapping path args (e.g. `src/ src/a.rs`) may duplicate entries
+        files.sort();
+        files.dedup();
+    }
     if !exts.is_empty() {
         files.retain(|f| {
             f.extension()
@@ -1757,6 +1759,66 @@ fn cmd_find(args: &[String]) -> u8 {
         return EXIT_NOT_FOUND;
     }
     let multi = files.len() > 1;
+
+    // `-c -l` together: PER-FILE counts (`path:count`), the grep-loop idiom
+    // (`grep -c pat f1 f2 | grep -v :0`) as one call. Only files with ≥1 match
+    // are printed — so empty output + exit 1 IS the "all clean" answer, no
+    // `grep -v :0` needed. Measured as the single most common surviving grep
+    // pattern in real agent sessions.
+    if count_only && files_only {
+        let fast = !regex_mode && can_fast_count(pattern, ignore_case, word);
+        let mut rows: Vec<(String, usize)> = Vec::new();
+        let mut total = 0usize;
+        for f in &files {
+            let n = if fast {
+                scan_count(f, pattern, true).unwrap_or(0)
+            } else {
+                let bytes = match fs::read(f) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                };
+                if bytes.iter().take(8192).any(|&b| b == 0) {
+                    continue;
+                }
+                let content = match std::str::from_utf8(&bytes) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+                content
+                    .lines()
+                    .filter(|line| match &re {
+                        Some(r) => r.is_match(line),
+                        None => line_matches(line, pattern, ignore_case, word),
+                    })
+                    .count()
+            };
+            if n > 0 {
+                rows.push((f.to_string_lossy().to_string(), n));
+                total += n;
+            }
+        }
+        if total == 0 {
+            regex_hint(pattern, regex_mode);
+            return EXIT_NOT_FOUND;
+        }
+        if json {
+            let items: Vec<String> = rows
+                .iter()
+                .map(|(f, n)| format!("{{\"file\":{},\"count\":{n}}}", render::jstr(f)))
+                .collect();
+            println!(
+                "{{\"pattern\":{},\"total\":{},\"files\":[{}]}}",
+                render::jstr(pattern),
+                total,
+                items.join(",")
+            );
+        } else {
+            for (f, n) in &rows {
+                println!("{f}:{n}");
+            }
+        }
+        return EXIT_OK;
+    }
 
     // Pure-count fast path, handled up front so it can parallelize: memory-map
     // each file and count distinct matching lines, fanning ACROSS files over
@@ -3579,6 +3641,38 @@ mod tests {
         // without -e, an alternation is literal → no match (the hint goes to stderr)
         assert_eq!(s(&[p, "KeyE|KeyV"]), EXIT_NOT_FOUND);
         let _ = std::fs::remove_file(&f);
+    }
+
+    #[test]
+    fn find_multi_path_and_per_file_counts() {
+        // Measured idiom: `grep -c pat f1 f2 | grep -v :0` → `tarn find f1 f2 pat -c -l`.
+        let dir = std::env::temp_dir().join("tarn_test_find_multi_42");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b, c) = (dir.join("a.md"), dir.join("b.md"), dir.join("c.md"));
+        std::fs::write(&a, "x—y\nplain\nz—w\n").unwrap(); // 2 em-dash lines
+        std::fs::write(&b, "clean\n").unwrap(); // 0
+        std::fs::write(&c, "one—\n").unwrap(); // 1
+        let s =
+            |v: &[&str]| -> u8 { cmd_find(&v.iter().map(|x| x.to_string()).collect::<Vec<_>>()) };
+        let (pa, pb, pc) = (
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            c.to_str().unwrap(),
+        );
+        // multi-path: pattern LAST, all leading args must exist
+        assert_eq!(s(&[pa, pb, pc, "—"]), EXIT_OK);
+        // per-file counts: zero-count files omitted; total>0 → exit 0
+        assert_eq!(s(&[pa, pb, pc, "—", "-c", "-l"]), EXIT_OK);
+        // all clean → exit 1 (empty output IS the answer)
+        assert_eq!(s(&[pa, pb, pc, "zzz", "-c", "-l"]), EXIT_NOT_FOUND);
+        // regex per-file counts work too
+        assert_eq!(s(&[pa, pc, "(x|one)", "-e", "-c", "-l"]), EXIT_OK);
+        // a nonexistent leading positional is an unquoted-pattern error, not a search
+        assert_eq!(s(&[pa, "nope.md", "—"]), EXIT_USAGE);
+        // 2-positional form unchanged
+        assert_eq!(s(&[pa, "—", "-c"]), EXIT_OK);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -45,8 +45,8 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd {
         name: "find",
         group: "navigate",
-        usage: "tarn find <path> <pattern> [-i] [-w] [-e/--regex] [-c] [-l] [--enclosing] [-A/-B/-C N] [--ext rs,toml] [--limit N] [--json] [-- <pattern>]",
-        summary: "Substring search across a file or directory (literal by default; -e/--regex — or grep's -E — for a regular expression). Each hit carries file+line, optionally its enclosing definition. Recurses directories by default (grep's -r/-R are accepted no-ops). Faster than the system grep.",
+        usage: "tarn find <path>... <pattern> [-i] [-w] [-e/--regex] [-c] [-l] [-c -l = per-file counts] [--enclosing] [-A/-B/-C N] [--ext rs,toml] [--limit N] [--json] [-- <pattern>]",
+        summary: "Substring search across files or directories (several paths OK — pattern goes LAST; literal by default; -e/--regex or grep's -E for a regular expression). Each hit carries file+line, optionally its enclosing definition. Recurses directories (grep's -r/-R are no-ops). `-c -l` prints per-file counts (path:count, non-zero only — exit 1 when everything is clean). Faster than the system grep.",
         examples: &[
             "tarn find src/ parse_value --enclosing --json",
             "tarn find src/ port -w -C 2",
