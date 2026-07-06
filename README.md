@@ -3,7 +3,7 @@
 ![tarn](assets/banner.svg)
 
 [![CI](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml/badge.svg)](https://github.com/OneMuppet/tarn/actions/workflows/ci.yml)
-&nbsp;zero dependencies&nbsp;·&nbsp;168 tests
+&nbsp;zero dependencies&nbsp;·&nbsp;175 tests
 
 </div>
 
@@ -61,6 +61,7 @@ Any agent can learn tarn's whole surface in one call:
 ```sh
 tarn help --json        # machine-readable manifest: every command, usage, examples, exit codes
 tarn help find          # focused help for one command
+tarn mcp                # run as an MCP stdio server: `claude mcp add tarn -- tarn mcp`
 ```
 
 Drop [`AGENTS.md`](AGENTS.md) into your harness's context — a one-screen guide to
@@ -86,7 +87,7 @@ Reading whole files just to find one thing burns context. This loop gives you
 structure cheaply — orient, see a file's shape, jump straight to the symbol,
 edit the one line — all deterministic and `--json`-chainable.
 
-### Command quick-reference (27 commands)
+### Command quick-reference (28 commands)
 
 | Task | Command |
 | --- | --- |
@@ -116,6 +117,7 @@ edit the one line — all deterministic and `--json`-chainable.
 | Diff two files | `tarn diff <a> <b> [-u] [--stat]` (0 same / 1 differ / 2 error; `-u` = unified patch, `--stat` = magnitude) |
 | Inspect / view | `tarn view <file> [--numbers]` |
 | Print the agent guide | `tarn agents` (alias `guide`) — bundled in the binary, always matches the installed version |
+| Run as an MCP server | `tarn mcp` — zero-dep MCP stdio server; `claude mcp add tarn -- tarn mcp` loads outline/find/locate/peek/show/defs/refs/tree/replace_line/check as first-class tools |
 
 ### Exit codes (branch on these)
 
@@ -131,7 +133,7 @@ returns structured data; on edits it returns a result object you can chain.
 
 ## Install
 
-These are live as of **v0.8.1**.
+These are live as of **v0.9.0**.
 
 **Homebrew:**
 
@@ -140,14 +142,17 @@ brew install onemuppet/tap/tarn
 ```
 
 **Prebuilt binary (no Rust toolchain needed)** — from the
-[v0.8.1 release](https://github.com/OneMuppet/tarn/releases/tag/v0.8.1):
+[v0.9.0 release](https://github.com/OneMuppet/tarn/releases/tag/v0.9.0):
 
 ```sh
 # macOS (Apple Silicon)
-curl -L https://github.com/OneMuppet/tarn/releases/download/v0.8.1/tarn-v0.8.1-aarch64-apple-darwin.tar.gz | tar xz
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.9.0/tarn-v0.9.0-aarch64-apple-darwin.tar.gz | tar xz
 
 # Linux (x86_64)
-curl -L https://github.com/OneMuppet/tarn/releases/download/v0.8.1/tarn-v0.8.1-x86_64-unknown-linux-gnu.tar.gz | tar xz
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.9.0/tarn-v0.9.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
+
+# Linux (arm64 — cloud sandboxes, ARM CI, Graviton)
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.9.0/tarn-v0.9.0-aarch64-unknown-linux-gnu.tar.gz | tar xz
 ```
 
 Then put the extracted `tarn` on your `PATH`.
@@ -465,7 +470,7 @@ real multiplier for an agent is **repeated navigation + batched edits**:
 - The diff renderer trims the common prefix/suffix so a one-line change in a
   40k-line file diffs in ~26 ms instead of ~7 s.
 
-**Quality.** 27 commands, **168 tests**, gated by adversarial review on every
+**Quality.** 28 commands, **175 tests**, gated by adversarial review on every
 feature. The unsafe NEON path is **AddressSanitizer-clean** and the SIMD counter
 is **differential-tested** against a scalar oracle (900+ fuzz cases); its counts
 also match `rg`/`grep` on the benchmark corpus. Zero crate dependencies — std

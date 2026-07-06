@@ -211,7 +211,7 @@ fn utf8_len(b: u8) -> usize {
     }
 }
 
-fn parse(content: &str) -> Result<Node, String> {
+pub(crate) fn parse(content: &str) -> Result<Node, String> {
     let mut p = Parser::new(content);
     let node = p.parse_value()?;
     p.ws();
@@ -221,7 +221,7 @@ fn parse(content: &str) -> Result<Node, String> {
     Ok(node)
 }
 
-fn navigate<'n>(root: &'n Node, path: &str) -> Option<&'n Node> {
+pub(crate) fn navigate<'n>(root: &'n Node, path: &str) -> Option<&'n Node> {
     if path.is_empty() {
         return Some(root);
     }

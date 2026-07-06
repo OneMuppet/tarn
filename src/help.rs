@@ -207,6 +207,13 @@ pub const COMMANDS: &[Cmd] = &[
         examples: &["tarn view .env --numbers"],
     },
     Cmd {
+        name: "mcp",
+        group: "meta",
+        usage: "tarn mcp   (stdio MCP server — e.g. `claude mcp add tarn -- tarn mcp`)",
+        summary: "Run tarn as a zero-dependency MCP stdio server, exposing outline/find/locate/peek/show/defs/refs/tree/replace_line/check as first-class tools to any MCP-capable agent harness.",
+        examples: &["claude mcp add tarn -- tarn mcp"],
+    },
+    Cmd {
         name: "agents",
         group: "meta",
         usage: "tarn agents   (alias: guide)",
@@ -285,7 +292,7 @@ mod tests {
         for name in [
             "outline", "defs", "refs", "tree", "find", "peek", "show", "replace", "insert",
             "delete", "write", "apply", "patch", "batch", "rename", "json", "toml", "yaml",
-            "check", "diff", "get", "set", "unset", "keys", "view", "agents", "locate",
+            "check", "diff", "get", "set", "unset", "keys", "view", "agents", "locate", "mcp",
         ] {
             assert!(find_cmd(name).is_some(), "manifest missing command: {name}");
         }

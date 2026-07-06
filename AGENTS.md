@@ -9,7 +9,10 @@ structural, surgical, and gives you exact line numbers and meaningful exit codes
 every command, its usage, examples, and exit codes. `tarn help <command>` prints
 focused help, and `tarn agents` reprints this guide (it's compiled into the
 binary, so it always matches the installed version — no checkout or network
-needed). Build with `cargo build --release`; binary at `target/release/tarn`.
+needed). If your harness speaks MCP, `tarn mcp` runs tarn as a zero-dependency
+stdio server (`claude mcp add tarn -- tarn mcp`) exposing outline/find/locate/
+peek/show/defs/refs/tree/replace_line/check as first-class tools. Build with
+`cargo build --release`; binary at `target/release/tarn`.
 
 ## Why tarn instead of the usual tools
 

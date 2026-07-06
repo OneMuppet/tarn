@@ -22,6 +22,8 @@ jobs:
             target: aarch64-apple-darwin
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm # arm64 Linux — cloud sandboxes / ARM CI / Graviton
+            target: aarch64-unknown-linux-gnu
           # Intel macOS (x86_64-apple-darwin) is intentionally not built here:
           # GitHub's macos-13 runners are scarce and stall the release. Intel mac
           # users build from source via the Homebrew formula or `cargo build`.

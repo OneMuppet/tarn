@@ -28,8 +28,15 @@ class Tarn < Formula
   end
 
   on_linux do
-    url "https://github.com/OneMuppet/tarn/releases/download/v0.8.1/tarn-v0.8.1-x86_64-unknown-linux-gnu.tar.gz"
-    sha256 "afa96abb3fc8dae5ee5b70124836a4cb9ea15561ca55c74ffe276cc8eae2bd91"
+    on_intel do
+      url "https://github.com/OneMuppet/tarn/releases/download/v0.8.1/tarn-v0.8.1-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "afa96abb3fc8dae5ee5b70124836a4cb9ea15561ca55c74ffe276cc8eae2bd91"
+    end
+    on_arm do
+      # arm64 Linux binaries ship from v0.9.0 (cloud sandboxes / ARM CI / Graviton).
+      url "https://github.com/OneMuppet/tarn/releases/download/v0.9.0/tarn-v0.9.0-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "FILLED_AT_V090_RELEASE"
+    end
   end
 
   def install

@@ -9,6 +9,7 @@ mod editor;
 mod envfile;
 mod help;
 mod json;
+mod mcp;
 mod patch;
 mod regex;
 mod render;
@@ -180,6 +181,7 @@ fn run(args: &[String]) -> u8 {
         "tree" => cmd_tree(&args[1..]),
         "find" => cmd_find(&args[1..]),
         "locate" => cmd_locate(&args[1..]),
+        "mcp" => mcp::serve(VERSION),
         "check" => cmd_check(&args[1..]),
         "diff" => cmd_diff(&args[1..]),
         "replace" => cmd_replace(&args[1..]),
@@ -3294,6 +3296,7 @@ USAGE:
     tarn view  <file>           print the file       (alias: cat) [--numbers]
 
     tarn agents                 print the bundled agent guide (alias: guide)
+    tarn mcp                    run as an MCP stdio server (claude mcp add tarn -- tarn mcp)
     tarn help [command]         focused help for one command
     tarn help --json            machine-readable manifest (for agents)
     tarn --help | -h            tarn --version | -V

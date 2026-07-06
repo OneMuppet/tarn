@@ -4,6 +4,14 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.9.0]
+
+### `tarn mcp` — first-class tools for any MCP harness (rut-gated)
+- `tarn mcp` runs tarn as a **zero-dependency MCP stdio server** (JSON-RPC 2.0, newline-delimited, per the 2025-06-18 spec): `claude mcp add tarn -- tarn mcp` and outline / find / locate / peek / show / defs / refs / tree / replace_line / check load as first-class tools in Claude Code, Cursor, or any MCP-capable agent — the same altitude as the harness's built-in tools, on any machine. Version negotiation, verbatim id echo (string vs number preserved), notifications never answered, `ping` supported. Tool calls re-exec the tarn binary itself (no shell — arguments can't inject), so every command keeps its single tested implementation; tarn's exit-code contract maps directly (0/1 = valid result — "no matches" is data, not an error; 2/3 = tool error). Adversarially verified: shell-injection attempts, malformed/huge/unicode inputs, 50-call bursts, and JSON round-tripping of quotes/emoji all hold; stdout carries only protocol messages.
+
+### Distribution
+- Release binaries now include **`aarch64-unknown-linux-gnu`** (arm64 Linux — cloud sandboxes, ARM CI runners, Graviton), alongside Apple Silicon and x86_64 Linux; the Homebrew formula picks the right Linux binary per architecture.
+
 ## [0.8.1]
 
 ### `show` — accept a bare line spec (the sed `Np` reflex)
