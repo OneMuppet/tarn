@@ -22,7 +22,7 @@ class Tarn < Formula
     on_intel do
       # No prebuilt Intel-mac binary — build from the tagged source.
       url "https://github.com/OneMuppet/tarn/archive/refs/tags/v0.9.2.tar.gz"
-      sha256 "bb45b13a6feffe46707e0c6077cc23ab9f466356eb02987aa5cb379d9b9c0480"
+      sha256 "c884ca97854075d8c78ea8ec14bc21cd1b825cb97fc935f8ab85bc35125ba717"
       depends_on "rust" => :build
     end
   end
@@ -35,7 +35,7 @@ class Tarn < Formula
     on_arm do
       # arm64 Linux binaries ship from v0.9.2 (cloud sandboxes / ARM CI / Graviton).
       url "https://github.com/OneMuppet/tarn/releases/download/v0.9.2/tarn-v0.9.2-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "60b059f4775bd6beb0b73831000b2dd9a807c1927ec1d0066ef4d048db8903da"
+      sha256 "0e6dc5a907568b9149d2383fa1c8c62373af1c9c52f874e376ecd4a76656ec21"
     end
   end
 
