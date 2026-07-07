@@ -2458,6 +2458,61 @@ fn cmd_replace(args: &[String]) -> u8 {
         );
     }
 
+    // Exact-block mode: `replace <file> --old <BLOCK> --new <BLOCK> [--all]` —
+    // content-addressed, byte-exact, multi-line. Mirrors the built-in Edit tool:
+    // find the exact substring <old>, require it unique (refuse otherwise unless
+    // --all), replace with <new>. The primitive agents actually reach for
+    // ("swap this exact span for that one") that --match (line-anchored) and
+    // --def (whole-function) don't cover. `<new>` may be given via `--new` or on
+    // stdin. Atomic; no line numbers, so it survives drift.
+    if let Some(old_block) = flags.old.clone() {
+        let file = match flags.rest.first() {
+            Some(f) => f.as_str(),
+            None => return usage_err("replace <file> --old <BLOCK> --new <BLOCK> [--all]"),
+        };
+        let new_block = match flags.new.clone() {
+            Some(n) => n,
+            None => {
+                let mut s = String::new();
+                if io::stdin().read_to_string(&mut s).is_err() {
+                    return usage_err(
+                        "replace <file> --old <BLOCK> --new <BLOCK>   (or new text on stdin)",
+                    );
+                }
+                s
+            }
+        };
+        if old_block.is_empty() {
+            eprintln!("tarn: --old must not be empty (that would match everywhere)");
+            return EXIT_USAGE;
+        }
+        let content = match fs::read_to_string(file) {
+            Ok(c) => c,
+            Err(_) => {
+                eprintln!("tarn: cannot read {file}");
+                return EXIT_NOT_FOUND;
+            }
+        };
+        let count = content.matches(&old_block).count();
+        if count == 0 {
+            eprintln!("tarn: --old block not found in {file} (exact, whole-string match)");
+            return EXIT_NOT_FOUND;
+        }
+        if count > 1 && !flags.all {
+            eprintln!(
+                "tarn: --old block matches {count} places in {file} — add more surrounding \
+                 context to make it unique, or pass --all to replace every occurrence"
+            );
+            return EXIT_GUARD;
+        }
+        let updated = if flags.all {
+            content.replace(&old_block, &new_block)
+        } else {
+            content.replacen(&old_block, &new_block, 1)
+        };
+        return commit(file, "replace", &flags, &content, &updated);
+    }
+
     // Anchored mode: `replace <file> --match <anchor> <new-line>` — content-
     // addressed, no line number. Replaces the whole line(s) containing <anchor>.
     if let Some(anchor) = flags.match_anchor.clone() {
@@ -2656,14 +2711,36 @@ fn def_block_range(path: &str, content: &str, name: &str) -> Result<(usize, usiz
 /// `write <file> [...]` — replace the whole file with stdin.
 fn cmd_write(args: &[String]) -> u8 {
     let flags = parse_edit_flags(args);
+    let allow_empty = flags.allow_empty;
     let file = match flags.rest.first() {
         Some(f) => f.as_str(),
-        None => return usage_err("write <file> [--diff|--json] [--dry-run]   (content on stdin)"),
+        None => {
+            return usage_err(
+                "write <file> [--allow-empty] [--diff|--json] [--dry-run]   (content on stdin)",
+            )
+        }
     };
     let mut input = String::new();
     if io::stdin().read_to_string(&mut input).is_err() {
         eprintln!("tarn: failed to read stdin");
         return EXIT_USAGE;
+    }
+    // Data-loss guard: refuse to truncate an existing NON-EMPTY file to nothing
+    // on empty stdin (the usual cause is a generator that errored before writing
+    // — a real incident). `--allow-empty` opts in to intentional truncation.
+    if input.is_empty() && !allow_empty {
+        match fs::metadata(file) {
+            Ok(m) if m.len() > 0 => {
+                eprintln!(
+                    "tarn: refusing to overwrite {file} ({} bytes) with EMPTY stdin — \
+                     if your generator failed this just saved the file; pass --allow-empty \
+                     to truncate on purpose",
+                    m.len()
+                );
+                return EXIT_GUARD;
+            }
+            _ => {}
+        }
     }
     let new = textfile::normalize(&input);
     apply_edit(file, "write", &flags, |_| Ok(()), move |_| Ok(new.clone()))
@@ -3037,8 +3114,11 @@ struct EditFlags {
     color: bool,
     all: bool,
     regex: bool,
+    allow_empty: bool,
     expect: Option<String>,
     match_anchor: Option<String>,
+    old: Option<String>,
+    new: Option<String>,
     def: Option<String>,
     rest: Vec<String>,
 }
@@ -3154,9 +3234,12 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
     let (mut diff, mut json, mut dry_run, mut all) = (false, false, false, false);
     let mut unified = false;
     let mut regex = false;
+    let mut allow_empty = false;
     let mut color_pref: Option<bool> = None;
     let mut expect: Option<String> = None;
     let mut match_anchor: Option<String> = None;
+    let mut old: Option<String> = None;
+    let mut new: Option<String> = None;
     let mut def: Option<String> = None;
     let mut rest: Vec<String> = Vec::new();
     let mut i = 0;
@@ -3172,6 +3255,7 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
             "--json" => json = true,
             "--dry-run" => dry_run = true,
             "--all" => all = true,
+            "--allow-empty" => allow_empty = true,
             "-e" | "--regex" => regex = true,
             "-u" | "--unified" => unified = true,
             "--color" => color_pref = Some(true),
@@ -3183,6 +3267,14 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
             "--match" => {
                 i += 1;
                 match_anchor = args.get(i).cloned();
+            }
+            "--old" => {
+                i += 1;
+                old = args.get(i).cloned();
+            }
+            "--new" => {
+                i += 1;
+                new = args.get(i).cloned();
             }
             "--def" => {
                 i += 1;
@@ -3200,8 +3292,11 @@ fn parse_edit_flags(args: &[String]) -> EditFlags {
         all,
         unified,
         regex,
+        allow_empty,
         expect,
         match_anchor,
+        old,
+        new,
         def,
         rest,
     }
@@ -3689,6 +3784,46 @@ mod tests {
         assert_eq!(s(&[p, "2-3"]), EXIT_OK); // bare range
         assert_eq!(s(&[p, "--lines", "1"]), EXIT_OK); // explicit form still works
         assert_eq!(s(&[p, "notaspec"]), EXIT_USAGE); // garbage 2nd positional errors
+        let _ = std::fs::remove_file(&f);
+    }
+
+    #[test]
+    fn replace_old_block_is_exact_unique_and_guarded() {
+        let s = |v: &[&str]| -> u8 {
+            cmd_replace(&v.iter().map(|x| x.to_string()).collect::<Vec<_>>())
+        };
+        let f = std::env::temp_dir().join("tarn_test_oldblock.rs");
+        std::fs::write(&f, "fn a() {\n    let x = 1;\n    let y = 2;\n}\nkeep\n").unwrap();
+        let p = f.to_str().unwrap();
+        // exact multi-line block → replaced
+        assert_eq!(
+            s(&[
+                p,
+                "--old",
+                "    let x = 1;\n    let y = 2;",
+                "--new",
+                "    let z = 3;"
+            ]),
+            EXIT_OK
+        );
+        let got = std::fs::read_to_string(&f).unwrap();
+        assert!(got.contains("let z = 3;") && !got.contains("let x = 1;") && got.contains("keep"));
+        // not found → exit 1, file unchanged
+        let before = std::fs::read_to_string(&f).unwrap();
+        assert_eq!(
+            s(&[p, "--old", "nonexistent", "--new", "x"]),
+            EXIT_NOT_FOUND
+        );
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), before);
+        // ambiguous (2 matches) without --all → guard, file untouched
+        std::fs::write(&f, "dup\ndup\n").unwrap();
+        assert_eq!(s(&[p, "--old", "dup", "--new", "z"]), EXIT_GUARD);
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "dup\ndup\n");
+        // --all replaces every occurrence
+        assert_eq!(s(&[p, "--old", "dup", "--new", "z", "--all"]), EXIT_OK);
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "z\nz\n");
+        // empty --old is rejected (would match everywhere)
+        assert_eq!(s(&[p, "--old", "", "--new", "x"]), EXIT_USAGE);
         let _ = std::fs::remove_file(&f);
     }
 

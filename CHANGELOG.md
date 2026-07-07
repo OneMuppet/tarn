@@ -4,6 +4,12 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.9.2]
+
+### Edit — the exact-span primitive + a data-loss guard (both from real agent-usage reports)
+- `tarn replace <file> --old <BLOCK> --new <BLOCK> [--all]` — content-addressed, byte-exact, possibly multi-line replace that mirrors the built-in editor: finds the exact `--old` string, refuses (exit 3, nothing written) unless it's unique, replaces atomically. The primitive agents actually reach for ("swap this exact span for that one") that `--match` (line-anchored) and `--def` (whole-function) didn't cover. `--new` may be a flag value or read from stdin; `--all` replaces every occurrence.
+- `tarn write` now **refuses to truncate an existing non-empty file when stdin is empty** (exit 3) — a failed upstream generator can no longer wipe a live file to zero (a real incident). Pass `--allow-empty` to truncate on purpose; new/empty files are unaffected.
+
 ## [0.9.1]
 
 ### `find` — multi-path search & per-file counts (measured from live agent sessions)
