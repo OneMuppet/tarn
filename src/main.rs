@@ -1577,32 +1577,52 @@ fn cmd_locate(args: &[String]) -> u8 {
     EXIT_OK
 }
 
-/// On a zero-match LITERAL search, nudge toward `-e` when the pattern looks like
-/// a regex the user typed expecting grep-style behavior (alternation, `.*`,
-/// `\d`). Bare `(`/`[`/single `.` are too common in code to flag — only strong
-/// signals. A stderr hint only; never changes the exit code.
-fn regex_hint(pattern: &str, regex_mode: bool) {
-    if regex_mode {
-        return;
-    }
-    let looks_regex = pattern.contains('|')
+/// Strong regex signals a user likely typed expecting grep-style behavior
+/// (alternation, quantifiers, classes). Bare `(`/`[`/single `.` are too common
+/// in code to flag — only unambiguous signals.
+fn looks_like_regex(pattern: &str) -> bool {
+    pattern.contains('|')
         || pattern.contains(".*")
         || pattern.contains(".+")
         || pattern.contains("\\d")
         || pattern.contains("\\w")
         || pattern.contains("\\s")
-        || pattern.contains("\\b");
-    if looks_regex {
-        eprintln!(
-            "tarn: no matches — the pattern looks like a regex (contains '|', '.*', or '\\d'), \
-             but find is literal by default; add -e/--regex to match it as a regular expression"
-        );
+        || pattern.contains("\\b")
+}
+
+/// On a zero-match LITERAL search whose pattern looks like a regex, auto-retry
+/// as a regex (grep IS regex by default, so that's almost always what was meant)
+/// with a loud stderr note so the behavior stays transparent. Skipped if the
+/// user forced literal with `--`. Returns the exit code to propagate. Bounded:
+/// the retry prepends `-e`, so regex_mode is set and it can't recurse again.
+/// (This only fires AFTER a literal search already found nothing, so it can only
+/// add results — never hides or changes a successful literal match.)
+fn maybe_regex_fallback(args: &[String], pattern: &str, regex_mode: bool) -> u8 {
+    if regex_mode || args.iter().any(|a| a == "--") || !looks_like_regex(pattern) {
+        return EXIT_NOT_FOUND;
     }
+    eprintln!(
+        "tarn: no literal matches for {pattern:?} — it looks like a regex, so retrying with -e \
+         (put `--` before the pattern to force a literal search)"
+    );
+    let mut retry: Vec<String> = vec!["-e".to_string()];
+    retry.extend(args.iter().cloned());
+    cmd_find(&retry)
 }
 
 /// `find <file> <pattern> [-i] [--enclosing] [--json] [--limit N]`
 /// Literal substring search; with --enclosing each hit is tagged with the
 /// definition that contains it. Exit 1 if there are no matches.
+/// grep/ripgrep-style attached context count: `-C2`/`-A3`/`-B1` → Some(n).
+/// Returns None unless the token is exactly `-<flag><digits>` (all digits).
+fn attached_ctx(s: &str, flag: char) -> Option<usize> {
+    let rest = s.strip_prefix('-')?.strip_prefix(flag)?;
+    if rest.is_empty() || !rest.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    rest.parse().ok()
+}
+
 fn cmd_find(args: &[String]) -> u8 {
     let mut pos: Vec<&str> = Vec::new(); // positionals: <path>... <pattern>
     let mut ignore_case = false;
@@ -1664,6 +1684,9 @@ fn cmd_find(args: &[String]) -> u8 {
                     Some(n) => ctx_after = n,
                     None => return usage_err("find <path> <pattern> -A N"),
                 },
+                // grep/ripgrep print line numbers via -n; tarn always does, so
+                // accept-and-ignore the reflex instead of erroring on it.
+                "-n" | "--line-number" => {}
                 "--ext" | "-t" => {
                     i += 1;
                     match args.get(i) {
@@ -1681,6 +1704,15 @@ fn cmd_find(args: &[String]) -> u8 {
                 // taken as the pattern (that would search for the wrong thing,
                 // e.g. a grep-style `-n` clobbering the real pattern). To search
                 // a literal pattern that starts with `-`, put it after `--`.
+                // grep/ripgrep accept attached context counts (`-C2`, `-A3`,
+                // `-B1`); honor the same so muscle memory doesn't bounce.
+                s if attached_ctx(s, 'C').is_some() => {
+                    let n = attached_ctx(s, 'C').unwrap();
+                    ctx_before = n;
+                    ctx_after = n;
+                }
+                s if attached_ctx(s, 'A').is_some() => ctx_after = attached_ctx(s, 'A').unwrap(),
+                s if attached_ctx(s, 'B').is_some() => ctx_before = attached_ctx(s, 'B').unwrap(),
                 s if s.starts_with('-') => {
                     eprintln!(
                         "tarn: unknown flag {s} — see `tarn help find` for supported flags \
@@ -1798,8 +1830,7 @@ fn cmd_find(args: &[String]) -> u8 {
             }
         }
         if total == 0 {
-            regex_hint(pattern, regex_mode);
-            return EXIT_NOT_FOUND;
+            return maybe_regex_fallback(args, pattern, regex_mode);
         }
         if json {
             let items: Vec<String> = rows
@@ -1831,8 +1862,7 @@ fn cmd_find(args: &[String]) -> u8 {
             count_files_parallel(&files, pattern)
         };
         if total == 0 {
-            regex_hint(pattern, regex_mode);
-            return EXIT_NOT_FOUND;
+            return maybe_regex_fallback(args, pattern, regex_mode);
         }
         if json {
             println!(
@@ -1929,8 +1959,7 @@ fn cmd_find(args: &[String]) -> u8 {
     }
 
     if total == 0 {
-        regex_hint(pattern, regex_mode);
-        return EXIT_NOT_FOUND;
+        return maybe_regex_fallback(args, pattern, regex_mode);
     }
 
     // -c / --count: just the number.
@@ -3707,8 +3736,12 @@ mod tests {
             |v: &[&str]| -> u8 { cmd_find(&v.iter().map(|x| x.to_string()).collect::<Vec<_>>()) };
         // the real pattern IS present → exit 0 without the stray flag
         assert_eq!(s(&[p, "interior: None,"]), EXIT_OK);
-        // grep-style -n must NOT clobber the pattern → usage error, not no-match
-        assert_eq!(s(&[p, "interior: None,", "-n"]), EXIT_USAGE);
+        // a GENUINELY unknown dash flag must still error, never be taken as the
+        // pattern (the anti-silent-wrong-search guarantee)
+        assert_eq!(s(&[p, "interior: None,", "-Z"]), EXIT_USAGE);
+        // but a recognized grep reflex (`-n`) is a no-op, so the real pattern
+        // still matches → EXIT_OK (not an error)
+        assert_eq!(s(&[p, "interior: None,", "-n"]), EXIT_OK);
         // a literal dash pattern is still reachable via `--`
         std::fs::write(&f, "let n = -5;\n").unwrap();
         assert_eq!(s(&[p, "--", "-5"]), EXIT_OK);
@@ -3733,8 +3766,20 @@ mod tests {
         assert_eq!(s(&[p, "KeyE|KeyV", "-E"]), EXIT_OK);
         // `-r` accepted as a no-op (not an unknown-flag error)
         assert_eq!(s(&[p, "KeyE", "-r"]), EXIT_OK);
-        // without -e, an alternation is literal → no match (the hint goes to stderr)
-        assert_eq!(s(&[p, "KeyE|KeyV"]), EXIT_NOT_FOUND);
+        // `-n` (grep line-number reflex) accepted as a no-op — tarn always shows
+        // line numbers, so it must not error
+        assert_eq!(s(&[p, "KeyE", "-n"]), EXIT_OK);
+        // attached context counts (`-C1`/`-A2`/`-B3`) accepted like grep/ripgrep
+        assert_eq!(s(&[p, "KeyE", "-C1"]), EXIT_OK);
+        assert_eq!(s(&[p, "KeyE", "-A2"]), EXIT_OK);
+        assert_eq!(s(&[p, "KeyE", "-B3"]), EXIT_OK);
+        // an alternation without -e now AUTO-RETRIES as regex → matches both lines
+        assert_eq!(s(&[p, "KeyE|KeyV"]), EXIT_OK);
+        // ...unless `--` forces a literal search: then the literal string
+        // "KeyE|KeyV" is genuinely absent → not found (no fallback)
+        assert_eq!(s(&[p, "--", "KeyE|KeyV"]), EXIT_NOT_FOUND);
+        // a look-like-regex pattern that matches nothing even as regex → not found
+        assert_eq!(s(&[p, "Zzz|Qqq"]), EXIT_NOT_FOUND);
         let _ = std::fs::remove_file(&f);
     }
 

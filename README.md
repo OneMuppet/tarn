@@ -133,7 +133,7 @@ returns structured data; on edits it returns a result object you can chain.
 
 ## Install
 
-These are live as of **v0.9.2**.
+These are live as of **v0.9.3**.
 
 **Homebrew:**
 
@@ -142,17 +142,17 @@ brew install onemuppet/tap/tarn
 ```
 
 **Prebuilt binary (no Rust toolchain needed)** — from the
-[v0.9.2 release](https://github.com/OneMuppet/tarn/releases/tag/v0.9.2):
+[v0.9.3 release](https://github.com/OneMuppet/tarn/releases/tag/v0.9.3):
 
 ```sh
 # macOS (Apple Silicon)
-curl -L https://github.com/OneMuppet/tarn/releases/download/v0.9.2/tarn-v0.9.2-aarch64-apple-darwin.tar.gz | tar xz
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.9.3/tarn-v0.9.3-aarch64-apple-darwin.tar.gz | tar xz
 
 # Linux (x86_64)
-curl -L https://github.com/OneMuppet/tarn/releases/download/v0.9.2/tarn-v0.9.2-x86_64-unknown-linux-gnu.tar.gz | tar xz
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.9.3/tarn-v0.9.3-x86_64-unknown-linux-gnu.tar.gz | tar xz
 
 # Linux (arm64 — cloud sandboxes, ARM CI, Graviton)
-curl -L https://github.com/OneMuppet/tarn/releases/download/v0.9.2/tarn-v0.9.2-aarch64-unknown-linux-gnu.tar.gz | tar xz
+curl -L https://github.com/OneMuppet/tarn/releases/download/v0.9.3/tarn-v0.9.3-aarch64-unknown-linux-gnu.tar.gz | tar xz
 ```
 
 Then put the extracted `tarn` on your `PATH`.
@@ -228,7 +228,11 @@ opening a thing. `--depth N` limits nesting (`--depth 0` = top-level only).
 > literals, comments, and Rust raw strings), so multi-line signatures report their
 > full body range. Residual gaps: C# `@"..."` verbatim strings, and Python/Ruby
 > bodies with unindented multi-line content. And `find` is **literal substring**
-> (`-i` = ASCII case-insensitive); pass `-e`/`--regex` for a regular expression.
+> (`-i` = ASCII case-insensitive); pass `-e`/`--regex` for a regular expression —
+> or just type one: a literal search that finds nothing but looks like a regex
+> (`|`, `.*`, `\d`…) auto-retries with `-e` (use `--` to force literal). Grep
+> reflexes are honored too: `-n` is a no-op, `-r`/`-R` are no-ops (recursion is
+> default), and attached context counts like `-C2`/`-A3`/`-B1` work.
 
 ## Open & edit a document (for AI harnesses)
 

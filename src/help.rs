@@ -46,10 +46,11 @@ pub const COMMANDS: &[Cmd] = &[
         name: "find",
         group: "navigate",
         usage: "tarn find <path>... <pattern> [-i] [-w] [-e/--regex] [-c] [-l] [-c -l = per-file counts] [--enclosing] [-A/-B/-C N] [--ext rs,toml] [--limit N] [--json] [-- <pattern>]",
-        summary: "Substring search across files or directories (several paths OK — pattern goes LAST; literal by default; -e/--regex or grep's -E for a regular expression). Each hit carries file+line, optionally its enclosing definition. Recurses directories (grep's -r/-R are no-ops). `-c -l` prints per-file counts (path:count, non-zero only — exit 1 when everything is clean). Faster than the system grep.",
+        summary: "Substring search across files or directories (several paths OK — pattern goes LAST; literal by default; -e/--regex or grep's -E for a regular expression). Each hit carries file+line, optionally its enclosing definition. grep/ripgrep reflexes are honored so muscle memory doesn't bounce: -r/-R are no-ops (recursion is default), -n is a no-op (line numbers always shown), attached context counts like -C2/-A3/-B1 work, and a literal pattern that finds nothing but looks like a regex (has |, .*, \\d…) is auto-retried with -e (use -- before the pattern to force literal). `-c -l` prints per-file counts (path:count, non-zero only — exit 1 when everything is clean). Faster than the system grep.",
         examples: &[
             "tarn find src/ parse_value --enclosing --json",
             "tarn find src/ port -w -C 2",
+            "tarn find src/ 'foo|bar'   # auto-retries as regex",
         ],
     },
     Cmd {

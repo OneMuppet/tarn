@@ -4,6 +4,14 @@ All notable changes to **tarn** are documented here. The format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so the
 surface may still shift.
 
+## [0.9.3]
+
+### `find` meets grep/ripgrep muscle memory (from real agent-session footguns)
+Agents reflexively carry grep/ripgrep flags into `tarn find`; three that tarn rejected (counted across real transcripts: `-n` ×7, regex-without-`-e` ×9, attached `-C1` ×2) now just work:
+- **`-n` / `--line-number`** is accepted as a no-op (tarn always shows line numbers) instead of erroring.
+- **Attached context counts** `-C2` / `-A3` / `-B1` are honored like grep/ripgrep (the space form `-C 2` still works).
+- **Auto regex-fallback**: a literal search that finds nothing but whose pattern looks like a regex (`|`, `.*`, `\d`, …) is automatically retried with `-e`, with a loud note — turning a failed retry into a result. Put `--` before the pattern to force a literal search; genuinely-unknown flags still error (no silent wrong-search).
+
 ## [0.9.2]
 
 ### Edit — the exact-span primitive + a data-loss guard (both from real agent-usage reports)
